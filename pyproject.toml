@@ -1,0 +1,45 @@
+[project]
+name = "xiangqi"
+version = "0.1.0"
+description = "Chinese Chess (Xiangqi) Game Server"
+authors = [{name = "Jerry Kong"}]
+requires-python = ">=3.10"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+websockets = "^12.0"
+pyjwt = "^2.8.0"
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+redis = "^5.0.1"
+sqlalchemy = "^2.0.23"
+asyncpg = "^0.29.0"
+httpx = "^0.25.2"
+numpy = "^1.26.2"
+torch = {version = "^2.1.0", index = "pytorch"}
+torchvision = {version = "^0.16.0", index = "pytorch"}
+pytest = "^7.4.3"
+pytest-asyncio = "^0.21.1"
+pytest-cov = "^4.1.0"
+httpx = "^0.25.2"
+python-dotenv = "^1.0.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --cov=internal --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["internal"]
+omit = ["*/tests/*", "*/cmd/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
