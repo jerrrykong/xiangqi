@@ -1,0 +1,56 @@
+"""Xiangqi - Chinese Chess Game.
+
+A Python implementation of Chinese Chess (Xiangqi) game logic.
+"""
+from .constants import (
+    Color,
+    PieceType,
+    Difficulty,
+    RoomStatus,
+    RoomType,
+    GameResult,
+    WinReason,
+    WSMessageType,
+    ErrorCode,
+    PIECE_EMPTY,
+    BOARD_ROWS,
+    BOARD_COLS,
+    BOARD_SIZE,
+    get_color_from_piece,
+    get_piece_type_from_piece,
+    is_red_piece,
+    is_black_piece,
+    is_piece,
+    encode_piece,
+    decode_piece,
+    get_piece_name,
+    coord_to_notation,
+    notation_to_coord,
+)
+
+__version__ = "0.1.0"
+__all__ = [
+    "Color",
+    "PieceType",
+    "Difficulty",
+    "RoomStatus",
+    "RoomType",
+    "GameResult",
+    "WinReason",
+    "WSMessageType",
+    "ErrorCode",
+    "PIECE_EMPTY",
+    "BOARD_ROWS",
+    "BOARD_COLS",
+    "BOARD_SIZE",
+    "get_color_from_piece",
+    "get_piece_type_from_piece",
+    "is_red_piece",
+    "is_black_piece",
+    "is_piece",
+    "encode_piece",
+    "decode_piece",
+    "get_piece_name",
+    "coord_to_notation",
+    "notation_to_coord",
+]
