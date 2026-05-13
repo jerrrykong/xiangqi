@@ -102,3 +102,8 @@ vendor/
 *.test
 *.out
 go.work
+
+# Compiled binaries
+server
+server_*
+

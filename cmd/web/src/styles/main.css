@@ -1,0 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap');
+
+:root {
+  --color-piece-red: #c41e3a;
+  --color-piece-black: #1a1a1a;
+  --color-board-line: #8b5a2b;
+  --color-board-bg: #deb887;
+  --color-wood-50: #fdf8f0;
+  --color-wood-100: #f5e6d0;
+  --color-wood-200: #e8c99b;
+  --color-wood-300: #d4a66a;
+  --color-wood-400: #c48a45;
+  --color-wood-500: #b37330;
+  --color-wood-600: #9a5f28;
+  --color-wood-700: #7d4a22;
+  --color-wood-800: #5f361a;
+  --color-wood-900: #3d2411;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  background: linear-gradient(135deg, var(--color-wood-100) 0%, var(--color-wood-200) 100%);
+  min-height: 100vh;
+}
+
+/* 棋盘背景纹理 */
+.board-texture {
+  background-color: var(--color-board-bg);
+  background-image:
+    radial-gradient(ellipse at 50% 50%, rgba(139, 90, 43, 0.1) 0%, transparent 70%),
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 2px,
+      rgba(139, 90, 43, 0.03) 2px,
+      rgba(139, 90, 43, 0.03) 4px
+    );
+}
+
+/* 棋子样式 */
+.piece {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-family: 'Noto Serif SC', serif;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.piece:hover {
+  transform: scale(1.05);
+  box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4);
+}
+
+.piece.selected {
+  box-shadow: 0 0 0 3px #ffd700, 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.piece.can-move {
+  cursor: pointer;
+}
+
+/* 棋子选中高亮 */
+.piece-highlight {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 215, 0, 0.4);
+  pointer-events: none;
+}
+
+/* 移动提示点 */
+.move-hint {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.6);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+/* 页面容器 */
+.page-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 卡片样式 */
+.card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(139, 90, 43, 0.2);
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-wood-100);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-wood-400);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-wood-600);
+}

@@ -48,3 +48,5 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 )
+
+replace github.com/rogpeppe/go-internal v1.14.1 => github.com/rogpeppe/go-internal v1.11.0

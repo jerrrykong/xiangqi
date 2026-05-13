@@ -153,16 +153,22 @@ func initDB(cfg *config.Config) (*gorm.DB, error) {
 	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	// Auto migrate models
-	if err := db.AutoMigrate(
+	// Auto migrate models - use Migrator().CreateTable to handle existing tables gracefully
+	migrator := db.Migrator()
+	models := []interface{}{
 		&model.User{},
 		&model.EloRating{},
 		&model.EloHistory{},
 		&model.Room{},
 		&model.GameHistory{},
 		&model.ModelVersion{},
-	); err != nil {
-		return nil, err
+	}
+	for _, m := range models {
+		if !migrator.HasTable(m) {
+			if err := migrator.CreateTable(m); err != nil {
+				log.Printf("Warning: failed to create table for %T: %v", m, err)
+			}
+		}
 	}
 
 	return db, nil

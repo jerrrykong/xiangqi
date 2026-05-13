@@ -5,9 +5,9 @@ server:
 database:
   host: "localhost"
   port: 5432
-  user: "postgres"
-  password: "your_password"
-  dbname: "chinese_chess"
+  user: "xiangqi"
+  password: "xiangqi"
+  dbname: "xiangqi"
   max_open_conns: 50
   max_idle_conns: 10
 
