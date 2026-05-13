@@ -49,6 +49,7 @@ var (
 	ErrNotYourTurn      = NewError(ErrCodeNotYourTurn, "非你的回合", "")
 	ErrAlreadyReady     = NewError(ErrCodeAlreadyReady, "已准备", "")
 	ErrNotReady         = NewError(ErrCodeNotReady, "未准备", "")
+	ErrUserBanned       = NewError(ErrCodeUserBanned, "用户已被封禁", "")
 
 	ErrInvalidMove       = NewError(ErrCodeInvalidMove, "无效着法", "")
 	ErrMoveNotYourTurn   = NewError(ErrCodeMoveNotYourTurn, "顺序错误", "")

@@ -146,43 +146,51 @@ const (
 // ============ 错误码 ============
 // 1xxx: 系统错误
 const (
-	ErrCodeSystem       = 1000 + iota // 系统错误
-	ErrCodeInternal                   // 内部错误
-	ErrCodeDatabase                   // 数据库错误
-	ErrCodeRedis                      // Redis 错误
-	ErrCodeInvalidParam               // 参数错误
+	ErrCodeSystem       = 1000
+	ErrCodeInternal     = 1001
+	ErrCodeDatabase     = 1002
+	ErrCodeRedis        = 1003
+	ErrCodeInvalidParam = 1004
+	ErrCodeRateLimit    = 1005
 )
 
 // 2xxx: 认证错误
 const (
-	ErrCodeAuth        = 2000 + iota // 认证错误
-	ErrCodeUnauthorized              // 未认证
-	ErrCodeTokenExpired              // Token 过期
-	ErrCodeTokenInvalid              // Token 无效
-	ErrCodeWrongPassword             // 密码错误
-	ErrCodeUserNotFound              // 用户不存在
-	ErrCodeUserExists                // 用户已存在
+	ErrCodeAuth           = 2000
+	ErrCodeUnauthorized   = 2001
+	ErrCodeTokenExpired   = 2002
+	ErrCodeTokenInvalid   = 2003
+	ErrCodeWrongPassword  = 2004
+	ErrCodeUserNotFound   = 2005
+	ErrCodeUserExists     = 2006
+	ErrCodeUserBanned     = 2007
 )
 
 // 3xxx: 房间错误
 const (
-	ErrCodeRoom        = 3000 + iota // 房间错误
-	ErrCodeRoomNotFound             // 房间不存在
-	ErrCodeRoomFull                 // 房间已满
-	ErrCodeRoomNotStarted           // 对局未开始
-	ErrCodeRoomAlreadyStarted       // 对局已开始
-	ErrCodeNotRoomOwner             // 非房主
-	ErrCodeNotYourTurn              // 非你的回合
-	ErrCodeAlreadyReady             // 已准备
-	ErrCodeNotReady                 // 未准备
+	ErrCodeRoom             = 3000
+	ErrCodeRoomNotFound     = 3001
+	ErrCodeRoomFull         = 3002
+	ErrCodeRoomNotWaiting   = 3003
+	ErrCodeAlreadyInRoom    = 3004
+	ErrCodeNotInRoom        = 3005
+	ErrCodeRoomNotStarted   = 3006
+	ErrCodeRoomAlreadyStarted = 3007
+	ErrCodeNotRoomOwner       = 3008
+	ErrCodeOpponentNotReady     = 3009
+	ErrCodeMatchTimeout         = 3010
 )
 
 // 4xxx: 游戏错误
 const (
-	ErrCodeGame        = 4000 + iota // 游戏错误
-	ErrCodeInvalidMove               // 无效着法
-	ErrCodeMoveNotYourTurn           // 顺序错误
-	ErrCodeGameNotStarted            // 游戏未开始
-	ErrCodeGameAlreadyOver           // 游戏已结束
-	ErrCodeCheck                     // 将军
+	ErrCodeGame           = 4000
+	ErrCodeInvalidMove    = 4001
+	ErrCodeMoveNotYourTurn = 4002
+	ErrCodeGameNotStarted = 4003
+	ErrCodeGameAlreadyOver = 4004
+	ErrCodeCheck          = 4005
+	ErrCodeReconnectFailed = 4006
+	ErrCodeNotYourTurn    = 4007
+	ErrCodeAlreadyReady   = 4008
+	ErrCodeNotReady      = 4009
 )

@@ -1,0 +1,29 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "your_password"
+  dbname: "chinese_chess"
+  max_open_conns: 50
+  max_idle_conns: 10
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 100
+
+jwt:
+  secret: "your-jwt-secret-change-in-production"
+  expire_hours: 168
+
+internal:
+  secret: "internal-service-secret-key"
+
+game_service:
+  base_url: "http://localhost:8081"
