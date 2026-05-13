@@ -255,10 +255,13 @@ class GameWebSocketServer:
 
                 # Join room
                 room = await self.room_manager.get_room(room_id)
+                logger.info(f"[DEBUG] get_room({room_id}) = {room}")
                 if room is None:
                     room = await self.room_manager.create_room(room_id=room_id)
+                    logger.info(f"[DEBUG] created room: {room}")
 
                 success, msg = await self.room_manager.join_room(room_id, session)
+                logger.info(f"[DEBUG] join_room result: success={success}, msg={msg}, session.side={session.side}")
                 if not success:
                     await websocket.send_json(
                         out_msg.error_message(3001, msg)

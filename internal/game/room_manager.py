@@ -12,6 +12,7 @@ from internal.chess.piece import Color
 from shared.constants import (
     RoomStatus, RoomType, GameResult, WinReason,
 )
+from shared.protocol import Move
 from internal.game.player_session import PlayerSession, ConnectionState
 from internal.game.protocol import outbound as out_msg
 
@@ -122,7 +123,7 @@ class Room:
         """Get the current turn side."""
         if self.game is None:
             return "red"
-        return "red" if self.game.current_color == Color.RED else "black"
+        return "red" if self.game.turn == Color.RED else "black"
 
     def make_move(self, session_id: str, from_pos: str, to_pos: str) -> tuple[bool, str]:
         """
@@ -143,19 +144,18 @@ class Room:
         # Parse positions
         try:
             from_col = ord(from_pos[0].lower()) - ord('a')
-            from_row = int(from_pos[1])
+            from_row = int(from_pos[1]) - 1  # Convert 1-indexed to 0-indexed
             to_col = ord(to_pos[0].lower()) - ord('a')
-            to_row = int(to_pos[1])
+            to_row = int(to_pos[1]) - 1  # Convert 1-indexed to 0-indexed
         except (ValueError, IndexError):
             return False, "Invalid position format"
 
-        # Make move
-        success, captured, is_check = self.game.apply_move(
-            from_col, from_row, to_col, to_row
-        )
+        # Create Move object and execute
+        move = Move(from_col=from_col, from_row=from_row, to_col=to_col, to_row=to_row)
+        success, error = self.game.make_move(move)
 
         if not success:
-            return False, self.game.last_error or "Invalid move"
+            return False, error
 
         return True, ""
 
@@ -223,12 +223,13 @@ class RoomManager:
 
     async def create_room(
         self,
+        room_id: Optional[str] = None,
         room_type: str = RoomType.PVP,
         difficulty: int = 1,
     ) -> Room:
         """Create a new room."""
         async with self._lock:
-            room_id = str(uuid.uuid4())
+            room_id = room_id or str(uuid.uuid4())
             room = Room(
                 room_id=room_id,
                 room_type=room_type,
@@ -285,8 +286,10 @@ class RoomManager:
 
             # If both players are in, start game
             if room.red_session and room.black_session:
-                room.state = RoomState.READY
-                room.start_game()
+                room.state = RoomState.PLAYING
+                room.started_at = time.time()
+                room.game = ChessGame()
+                room.game.start()  # Start the game (sets phase to PLAYING)
                 logger.info(f"Game started in room {room_id}")
 
             return True, "Joined room successfully"
