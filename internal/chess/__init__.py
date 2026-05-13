@@ -35,8 +35,19 @@ from .win_checker import (
     is_checkmate,
     is_stalemate,
 )
+from .game import (
+    ChessGame,
+    GamePhase,
+    GameState,
+    MoveRecord,
+)
+from .recorder import (
+    GameRecorder,
+    ZobristHasher,
+    RepetitionState,
+)
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     # Piece and Board
@@ -71,4 +82,13 @@ __all__ = [
     "is_king_exposed",
     "is_checkmate",
     "is_stalemate",
+    # Game State Machine
+    "ChessGame",
+    "GamePhase",
+    "GameState",
+    "MoveRecord",
+    # Recorder
+    "GameRecorder",
+    "ZobristHasher",
+    "RepetitionState",
 ]
