@@ -75,8 +75,17 @@ async function handleCreateRoom() {
         const myRoom = await getMyRoom()
         ElMessage.info('您已在房间内，正在跳转...')
         router.push(`/room/${myRoom.room_id}`)
-      } catch {
-        ElMessage.error('获取当前房间失败，请刷新页面重试')
+      } catch (getRoomError: any) {
+        // 如果后端返回 3005 或 404，说明用户实际上不在任何房间（可能是旧数据）
+        const getErrCode = getRoomError.response?.data?.code
+        const getErrStatus = getRoomError.response?.status
+        if (getErrCode === 3005 /* ErrCodeNotInRoom */ || getErrStatus === 404) {
+          // 清除 store 中的旧房间状态，让用户重新创建房间
+          roomStore.clearRoom()
+          ElMessage.warning('房间状态已过期，请重新创建')
+        } else {
+          ElMessage.error('获取当前房间失败，请刷新页面重试')
+        }
       }
     } else {
       ElMessage.error(message)

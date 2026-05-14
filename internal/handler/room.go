@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/jerrykong/xiangqi/internal/middleware"
 	"github.com/jerrykong/xiangqi/internal/pkg/response"
@@ -66,11 +67,17 @@ func (h *RoomHandler) GetMyRoom(c *gin.Context) {
 
 	room, err := h.roomSvc.GetUserCurrentRoom(c.Request.Context(), userID)
 	if err != nil {
-		response.Fail(c, http.StatusNotFound, shared.ErrCodeRoomNotFound, "not in any room")
+		// If record not found, user is simply not in any active room
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.Fail(c, http.StatusNotFound, shared.ErrCodeNotInRoom, "not in any room")
+			return
+		}
+		// Other errors are internal
+		response.InternalError(c)
 		return
 	}
 	if room == nil {
-		response.Fail(c, http.StatusNotFound, shared.ErrCodeRoomNotFound, "not in any room")
+		response.Fail(c, http.StatusNotFound, shared.ErrCodeNotInRoom, "not in any room")
 		return
 	}
 

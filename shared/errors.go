@@ -46,6 +46,7 @@ var (
 	ErrRoomNotStarted   = NewError(ErrCodeRoomNotStarted, "对局未开始", "")
 	ErrRoomAlreadyStarted = NewError(ErrCodeRoomAlreadyStarted, "对局已开始", "")
 	ErrNotRoomOwner     = NewError(ErrCodeNotRoomOwner, "非房主", "")
+	ErrNotInRoom        = NewError(ErrCodeNotInRoom, "不在任何房间", "")
 	ErrNotYourTurn      = NewError(ErrCodeNotYourTurn, "非你的回合", "")
 	ErrAlreadyReady     = NewError(ErrCodeAlreadyReady, "已准备", "")
 	ErrNotReady         = NewError(ErrCodeNotReady, "未准备", "")
