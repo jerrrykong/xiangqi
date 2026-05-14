@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/jerrykong/xiangqi/internal/pkg/log"
 	"github.com/jerrykong/xiangqi/internal/pkg/response"
 )
 
@@ -21,6 +22,11 @@ func RateLimit(redisClient *redis.Client, maxReq int, window time.Duration) gin.
 		// Increment the counter
 		count, err := redisClient.Incr(ctx, key).Result()
 		if err != nil {
+			log.Error("ratelimit_redis_error",
+				"path", c.Request.URL.Path,
+				"client_ip", c.ClientIP(),
+				"error", err.Error(),
+			)
 			// Redis error - allow the request through
 			c.Next()
 			return
@@ -33,10 +39,23 @@ func RateLimit(redisClient *redis.Client, maxReq int, window time.Duration) gin.
 
 		// Check if limit exceeded
 		if count > int64(maxReq) {
+			log.Warn("ratelimit_exceeded",
+				"path", c.Request.URL.Path,
+				"client_ip", c.ClientIP(),
+				"count", count,
+				"limit", maxReq,
+			)
 			response.TooManyRequests(c)
 			c.Abort()
 			return
 		}
+
+		log.Debug("ratelimit_check",
+			"path", c.Request.URL.Path,
+			"client_ip", c.ClientIP(),
+			"count", count,
+			"limit", maxReq,
+		)
 
 		c.Next()
 	}
@@ -57,6 +76,11 @@ func RateLimitByUser(redisClient *redis.Client, maxReq int, window time.Duration
 
 		count, err := redisClient.Incr(ctx, key).Result()
 		if err != nil {
+			log.Error("ratelimit_redis_error",
+				"path", c.Request.URL.Path,
+				"user_id", userID,
+				"error", err.Error(),
+			)
 			c.Next()
 			return
 		}
@@ -66,10 +90,23 @@ func RateLimitByUser(redisClient *redis.Client, maxReq int, window time.Duration
 		}
 
 		if count > int64(maxReq) {
+			log.Warn("ratelimit_exceeded",
+				"path", c.Request.URL.Path,
+				"user_id", userID,
+				"count", count,
+				"limit", maxReq,
+			)
 			response.TooManyRequests(c)
 			c.Abort()
 			return
 		}
+
+		log.Debug("ratelimit_check",
+			"path", c.Request.URL.Path,
+			"user_id", userID,
+			"count", count,
+			"limit", maxReq,
+		)
 
 		c.Next()
 	}

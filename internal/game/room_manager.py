@@ -20,6 +20,15 @@ from internal.game.protocol import outbound as out_msg
 logger = logging.getLogger(__name__)
 
 
+def _log(level: str, msg: str, **kwargs):
+    """Structured logging helper."""
+    parts = [msg]
+    for k, v in kwargs.items():
+        parts.append(f"{k}={v}")
+    log_msg = " | ".join(parts)
+    getattr(logger, level)(log_msg)
+
+
 class RoomState(Enum):
     """Room internal state."""
     WAITING = "waiting"
@@ -96,28 +105,56 @@ class Room:
     def assign_red(self, session: PlayerSession) -> bool:
         """Assign a session to red side."""
         if self.red_session is not None:
+            _log("warning", "room_assign_side_failed",
+                 room_id=self.room_id,
+                 session_id=session.session_id,
+                 side="red",
+                 reason="side_occupied")
             return False
         self.red_session = session
         session.room_id = self.room_id
         session.side = "red"
+        _log("info", "room_assign_side",
+             room_id=self.room_id,
+             session_id=session.session_id,
+             side="red",
+             user_id=session.user_id)
         return True
 
     def assign_black(self, session: PlayerSession) -> bool:
         """Assign a session to black side."""
         if self.black_session is not None:
+            _log("warning", "room_assign_side_failed",
+                 room_id=self.room_id,
+                 session_id=session.session_id,
+                 side="black",
+                 reason="side_occupied")
             return False
         self.black_session = session
         session.room_id = self.room_id
         session.side = "black"
+        _log("info", "room_assign_side",
+             room_id=self.room_id,
+             session_id=session.session_id,
+             side="black",
+             user_id=session.user_id)
         return True
 
     def start_game(self) -> None:
         """Start the game."""
         if self.state != RoomState.READY:
+            _log("warning", "room_start_game_failed",
+                 room_id=self.room_id,
+                 reason="not_ready",
+                 current_state=self.state.value)
             return
         self.state = RoomState.PLAYING
         self.started_at = time.time()
         self.game = ChessGame()
+        _log("info", "room_game_started",
+             room_id=self.room_id,
+             room_type=self.room_type,
+             difficulty=self.difficulty)
 
     def get_current_side(self) -> str:
         """Get the current turn side."""
@@ -131,15 +168,32 @@ class Room:
         Returns: (success, error_message)
         """
         if self.state != RoomState.PLAYING:
-            return False, "Game not in playing state"
+            msg = "Game not in playing state"
+            _log("warning", "room_make_move_failed",
+                 room_id=self.room_id,
+                 session_id=session_id,
+                 reason=msg)
+            return False, msg
 
         side = self.get_side(session_id)
         if side is None:
-            return False, "Session not in room"
+            msg = "Session not in room"
+            _log("warning", "room_make_move_failed",
+                 room_id=self.room_id,
+                 session_id=session_id,
+                 reason=msg)
+            return False, msg
 
         current_side = self.get_current_side()
         if side != current_side:
-            return False, f"Not your turn (current: {current_side})"
+            msg = f"Not your turn (current: {current_side})"
+            _log("warning", "room_make_move_failed",
+                 room_id=self.room_id,
+                 session_id=session_id,
+                 side=side,
+                 reason=msg,
+                 current_turn=current_side)
+            return False, msg
 
         # Parse positions
         try:
@@ -148,14 +202,36 @@ class Room:
             to_col = ord(to_pos[0].lower()) - ord('a')
             to_row = int(to_pos[1]) - 1  # Convert 1-indexed to 0-indexed
         except (ValueError, IndexError):
-            return False, "Invalid position format"
+            msg = "Invalid position format"
+            _log("warning", "room_make_move_failed",
+                 room_id=self.room_id,
+                 session_id=session_id,
+                 reason=msg,
+                 from_pos=from_pos,
+                 to_pos=to_pos)
+            return False, msg
 
         # Create Move object and execute
         move = Move(from_col=from_col, from_row=from_row, to_col=to_col, to_row=to_row)
         success, error = self.game.make_move(move)
 
         if not success:
+            _log("warning", "room_make_move_failed",
+                 room_id=self.room_id,
+                 session_id=session_id,
+                 side=side,
+                 from_pos=from_pos,
+                 to_pos=to_pos,
+                 reason=error)
             return False, error
+
+        _log("info", "room_move_success",
+             room_id=self.room_id,
+             session_id=session_id,
+             side=side,
+             from_pos=from_pos,
+             to_pos=to_pos,
+             move_no=self.game.move_count)
 
         return True, ""
 
@@ -179,6 +255,12 @@ class Room:
         winner = winner_map.get(result.winner, None)
         result_str = result.result.value if hasattr(result.result, 'value') else str(result.result)
         reason = result.reason or WinReason.CHECKMATE
+
+        _log("info", "room_game_over_detected",
+             room_id=self.room_id,
+             winner=winner,
+             result=result_str,
+             reason=reason)
 
         return True, winner, result_str, reason
 
@@ -210,6 +292,9 @@ class Room:
         if self._turn_timer:
             self._turn_timer.cancel()
             self._turn_timer = None
+        _log("info", "room_cleanup",
+             room_id=self.room_id,
+             state=self.state.value)
 
 
 class RoomManager:
@@ -220,6 +305,7 @@ class RoomManager:
         self._session_to_room: Dict[str, str] = {}  # session_id -> room_id
         self._lock = asyncio.Lock()
         self._ai_engine = None  # AI engine, injected later
+        _log("info", "room_manager_init")
 
     async def create_room(
         self,
@@ -236,18 +322,41 @@ class RoomManager:
                 difficulty=difficulty,
             )
             self._rooms[room_id] = room
-            logger.info(f"Room created: {room_id}, type: {room_type}")
+            _log("info", "room_created",
+                 room_id=room_id,
+                 room_type=room_type,
+                 difficulty=difficulty,
+                 total_rooms=len(self._rooms))
             return room
 
     async def get_room(self, room_id: str) -> Optional[Room]:
         """Get a room by ID."""
-        return self._rooms.get(room_id)
+        room = self._rooms.get(room_id)
+        if room:
+            _log("debug", "room_get",
+                 room_id=room_id,
+                 found=True,
+                 state=room.state.value)
+        else:
+            _log("debug", "room_get",
+                 room_id=room_id,
+                 found=False)
+        return room
 
     async def get_room_by_session(self, session_id: str) -> Optional[Room]:
         """Get a room by session ID."""
         room_id = self._session_to_room.get(session_id)
         if room_id:
-            return self._rooms.get(room_id)
+            room = self._rooms.get(room_id)
+            _log("debug", "room_get_by_session",
+                 session_id=session_id,
+                 room_id=room_id,
+                 found=room is not None)
+            return room
+        _log("debug", "room_get_by_session",
+             session_id=session_id,
+             room_id=None,
+             found=False)
         return None
 
     async def join_room(
@@ -259,15 +368,33 @@ class RoomManager:
         Join a room.
         Returns: (success, message)
         """
+        _log("info", "room_join_attempt",
+             room_id=room_id,
+             session_id=session.session_id,
+             user_id=session.user_id)
+
         async with self._lock:
             room = self._rooms.get(room_id)
             if room is None:
+                _log("warning", "room_join_failed",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     reason="room_not_found")
                 return False, "Room not found"
 
             if room.is_full():
+                _log("warning", "room_join_failed",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     reason="room_full")
                 return False, "Room is full"
 
             if room.state not in (RoomState.WAITING, RoomState.READY):
+                _log("warning", "room_join_failed",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     reason="game_already_started",
+                     room_state=room.state.value)
                 return False, "Game already started"
 
             # Assign to available side
@@ -280,6 +407,10 @@ class RoomManager:
                 assigned = True
 
             if not assigned:
+                _log("warning", "room_join_failed",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     reason="failed_to_assign_side")
                 return False, "Failed to assign side"
 
             self._session_to_room[session.session_id] = room_id
@@ -290,15 +421,30 @@ class RoomManager:
                 room.started_at = time.time()
                 room.game = ChessGame()
                 room.game.start()  # Start the game (sets phase to PLAYING)
-                logger.info(f"Game started in room {room_id}")
+                _log("info", "room_game_starting",
+                     room_id=room_id,
+                     red_session=room.red_session.session_id,
+                     black_session=room.black_session.session_id)
+
+            _log("info", "room_join_success",
+                 room_id=room_id,
+                 session_id=session.session_id,
+                 side=session.side,
+                 room_state=room.state.value)
 
             return True, "Joined room successfully"
 
     async def leave_room(self, session_id: str) -> bool:
         """Remove a player from their room."""
+        _log("info", "room_leave_attempt",
+             session_id=session_id)
+
         async with self._lock:
             room = await self.get_room_by_session(session_id)
             if room is None:
+                _log("warning", "room_leave_failed",
+                     session_id=session_id,
+                     reason="not_in_any_room")
                 return False
 
             side = room.get_side(session_id)
@@ -307,13 +453,21 @@ class RoomManager:
             elif side == "black":
                 room.black_session = None
 
-            del self._session_to_room[session_id]
+            if session_id in self._session_to_room:
+                del self._session_to_room[session_id]
 
             # Clean up empty rooms
             if room.is_empty():
                 room.cleanup()
                 del self._rooms[room.room_id]
-                logger.info(f"Room {room.room_id} cleaned up (empty)")
+                _log("info", "room_deleted_empty",
+                     room_id=room.room_id,
+                     total_rooms=len(self._rooms))
+
+            _log("info", "room_leave_success",
+                 session_id=session_id,
+                 room_id=room.room_id,
+                 side=side)
 
             return True
 
@@ -327,8 +481,16 @@ class RoomManager:
         Handle a move.
         Returns: (success, response_data)
         """
+        _log("debug", "room_handle_move",
+             session_id=session_id,
+             from_pos=from_pos,
+             to_pos=to_pos)
+
         room = await self.get_room_by_session(session_id)
         if room is None:
+            _log("warning", "room_handle_move_failed",
+                 session_id=session_id,
+                 reason="not_in_room")
             return False, out_msg.error_message(4001, "Not in a room")
 
         success, error = room.make_move(session_id, from_pos, to_pos)
@@ -343,6 +505,12 @@ class RoomManager:
             room.winner = winner
             room.result = result
             room.reason = reason
+            _log("info", "room_game_ended",
+                 room_id=room.room_id,
+                 winner=winner,
+                 result=result,
+                 reason=reason,
+                 duration_seconds=int(room.ended_at - room.started_at) if room.started_at else 0)
             # Fire callback
             if room.on_game_over:
                 await room.on_game_over(room)
@@ -393,11 +561,20 @@ class RoomManager:
 
     async def handle_resign(self, session_id: str) -> tuple[bool, dict]:
         """Handle a resignation."""
+        _log("info", "room_handle_resign",
+             session_id=session_id)
+
         room = await self.get_room_by_session(session_id)
         if room is None:
+            _log("warning", "room_handle_resign_failed",
+                 session_id=session_id,
+                 reason="not_in_room")
             return False, out_msg.error_message(4001, "Not in a room")
 
         if room.state != RoomState.PLAYING:
+            _log("warning", "room_handle_resign_failed",
+                 session_id=session_id,
+                 reason="game_not_in_progress")
             return False, out_msg.error_message(4001, "Game not in progress")
 
         side = room.get_side(session_id)
@@ -408,6 +585,12 @@ class RoomManager:
         room.winner = opponent_side
         room.result = GameResult.RED_RESIGN if side == "red" else GameResult.BLACK_RESIGN
         room.reason = WinReason.RESIGN
+
+        _log("info", "room_resign_success",
+             room_id=room.room_id,
+             session_id=session_id,
+             side=side,
+             winner=opponent_side)
 
         if room.on_game_over:
             await room.on_game_over(room)
@@ -420,6 +603,9 @@ class RoomManager:
 
     async def handle_draw_request(self, session_id: str) -> tuple[bool, dict]:
         """Handle a draw request."""
+        _log("debug", "room_handle_draw_request",
+             session_id=session_id)
+
         room = await self.get_room_by_session(session_id)
         if room is None:
             return False, out_msg.error_message(4001, "Not in a room")
@@ -430,6 +616,10 @@ class RoomManager:
 
     async def handle_draw_answer(self, session_id: str, accept: bool) -> tuple[bool, dict]:
         """Handle a draw answer."""
+        _log("info", "room_handle_draw_answer",
+             session_id=session_id,
+             accept=accept)
+
         room = await self.get_room_by_session(session_id)
         if room is None:
             return False, out_msg.error_message(4001, "Not in a room")
@@ -442,6 +632,10 @@ class RoomManager:
             room.winner = None
             room.result = GameResult.DRAW
             room.reason = WinReason.AGREEMENT
+
+            _log("info", "room_draw_accepted",
+                 room_id=room.room_id,
+                 session_id=session_id)
 
             if room.on_game_over:
                 await room.on_game_over(room)
@@ -468,13 +662,25 @@ class RoomManager:
         room_id: str,
     ) -> tuple[bool, dict]:
         """Handle a reconnection."""
+        _log("info", "room_handle_reconnect",
+             session_id=session.session_id,
+             room_id=room_id)
+
         async with self._lock:
             room = self._rooms.get(room_id)
             if room is None:
+                _log("warning", "room_reconnect_failed",
+                     session_id=session.session_id,
+                     room_id=room_id,
+                     reason="room_not_found")
                 return False, out_msg.error_message(4003, "Room not found")
 
             # Verify token
             if session.token != token:
+                _log("warning", "room_reconnect_failed",
+                     session_id=session.session_id,
+                     room_id=room_id,
+                     reason="invalid_token")
                 return False, out_msg.error_message(4003, "Invalid token")
 
             # Find the session in the room
@@ -486,16 +692,27 @@ class RoomManager:
                 state_sync = out_msg.state_sync_message(
                     **room.get_state_sync_data(session.session_id)
                 )
+                _log("info", "room_reconnect_success",
+                     session_id=session.session_id,
+                     room_id=room_id,
+                     side=session.side)
                 return True, state_sync
 
+            _log("warning", "room_reconnect_failed",
+                 session_id=session.session_id,
+                 room_id=room_id,
+                 reason="session_not_in_room")
             return False, out_msg.error_message(4003, "Session not in room")
 
     def list_active_rooms(self) -> List[Room]:
         """List all active rooms."""
-        return [
+        rooms = [
             r for r in self._rooms.values()
             if r.state in (RoomState.WAITING, RoomState.READY, RoomState.PLAYING)
         ]
+        _log("debug", "room_list_active",
+             count=len(rooms))
+        return rooms
 
     def count_active_rooms(self) -> int:
         """Count active rooms."""

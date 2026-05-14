@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/jerrykong/xiangqi/internal/pkg/jwt"
+	"github.com/jerrykong/xiangqi/internal/pkg/log"
 	"github.com/jerrykong/xiangqi/internal/pkg/response"
 )
 
@@ -22,11 +23,21 @@ const (
 	ContextKeyIsAdmin ContextKey = "is_admin"
 )
 
-// JWTAuth creates a JWT authentication middleware
+// JWTAuth creates a JWT authentication middleware with detailed logging
 func JWTAuth(jwtManager *jwt.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
+		clientIP := c.ClientIP()
+		path := c.Request.URL.Path
+
+		// Log authentication attempt
+		log.Debug("jwt_auth_attempt",
+			"path", path,
+			"client_ip", clientIP,
+		)
+
 		if authHeader == "" {
+			log.JWTAuth(false, "", 0, "missing_authorization_header")
 			response.Unauthorized(c)
 			c.Abort()
 			return
@@ -34,6 +45,7 @@ func JWTAuth(jwtManager *jwt.JWTManager) gin.HandlerFunc {
 
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			log.JWTAuth(false, "", 0, "invalid_token_format")
 			response.UnauthorizedWithMessage(c, "invalid token format")
 			c.Abort()
 			return
@@ -42,9 +54,15 @@ func JWTAuth(jwtManager *jwt.JWTManager) gin.HandlerFunc {
 		tokenString := parts[1]
 		claims, err := jwtManager.ParseToken(tokenString)
 		if err != nil {
-			if err == jwt.ErrTokenExpired {
+			switch err {
+			case jwt.ErrTokenExpired:
+				log.JWTAuth(false, "", 0, "token_expired")
 				response.TokenExpired(c)
-			} else {
+			case jwt.ErrTokenInvalid:
+				log.JWTAuth(false, "", 0, "token_invalid")
+				response.TokenInvalid(c)
+			default:
+				log.JWTAuth(false, "", 0, "token_parse_error")
 				response.TokenInvalid(c)
 			}
 			c.Abort()
@@ -55,6 +73,9 @@ func JWTAuth(jwtManager *jwt.JWTManager) gin.HandlerFunc {
 		c.Set(string(ContextKeyUserID), claims.UserID)
 		c.Set(string(ContextKeyUsername), claims.Username)
 		c.Set(string(ContextKeyIsAdmin), claims.IsAdmin)
+
+		// Log successful authentication
+		log.JWTAuth(true, claims.Username, claims.UserID, "success")
 
 		c.Next()
 	}

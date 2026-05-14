@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Tuple, Callable, Dict
 import time
 import copy
+import logging
 
 from shared.constants import (
     Color,
@@ -22,6 +23,18 @@ from ..chess.piece import Board
 from ..chess.move_generator import MoveGenerator, LegalMove
 from ..chess.move_validator import MoveValidator
 from ..chess.win_checker import WinChecker
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log(level: str, msg: str, **kwargs):
+    """Structured logging helper."""
+    parts = [msg]
+    for k, v in kwargs.items():
+        parts.append(f"{k}={v}")
+    log_msg = " | ".join(parts)
+    getattr(logger, level)(log_msg)
 
 
 # ==================== 局面评估 ====================
@@ -304,6 +317,11 @@ class ChessAI:
         
         search_depth = depth if depth is not None else self.depth
         
+        _log("info", "ai_search_start",
+             turn=turn.value,
+             search_depth=search_depth,
+             max_time_ms=self.max_time_ms)
+        
         # 重置统计
         self.nodes_searched = 0
         self.max_depth_reached = 0
@@ -314,8 +332,13 @@ class ChessAI:
         
         # 生成所有合法着法
         legal_moves = move_generator.generate_all_moves(turn)
+        _log("debug", "ai_legal_moves_generated",
+             move_count=len(legal_moves))
+        
         if not legal_moves:
             # 无合法着法
+            _log("warning", "ai_no_legal_moves",
+                 turn=turn.value)
             return SearchResult(
                 move=Move(0, 0, 0, 0),
                 score=-self.MATE_SCORE,
@@ -336,10 +359,17 @@ class ChessAI:
                 if result is not None:
                     best_result = result
                     self.max_depth_reached = d
+                    _log("debug", "ai_depth_complete",
+                         depth=d,
+                         best_score=result.score,
+                         nodes=self.nodes_searched)
                 
                 # 检查是否超时
                 elapsed = (time.time() - start_time) * 1000
                 if elapsed > self.max_time_ms:
+                    _log("debug", "ai_timeout_at_depth",
+                         depth=d,
+                         elapsed_ms=int(elapsed))
                     break
         else:
             best_result = self._search_at_depth(
@@ -349,6 +379,8 @@ class ChessAI:
         
         if best_result is None:
             # 默认选择第一个着法
+            _log("warning", "ai_search_fallback",
+                 move_count=len(legal_moves))
             best_move = legal_moves[0].to_move()
             score = self.evaluator.evaluate(board, turn)
             best_result = SearchResult(
@@ -362,6 +394,15 @@ class ChessAI:
         self.search_time_ms = (time.time() - start_time) * 1000
         best_result.time_ms = self.search_time_ms
         best_result.nodes_searched = self.nodes_searched
+        
+        _log("info", "ai_search_complete",
+             move_from=f"{chr(ord('a') + best_result.move.from_col)}{best_result.move.from_row + 1}",
+             move_to=f"{chr(ord('a') + best_result.move.to_col)}{best_result.move.to_row + 1}",
+             score=best_result.score,
+             nodes_searched=best_result.nodes_searched,
+             depth_reached=self.max_depth_reached,
+             time_ms=int(best_result.time_ms),
+             is_checkmate=best_result.is_checkmate)
         
         return best_result
     
@@ -394,6 +435,9 @@ class ChessAI:
             # 检查是否超时
             elapsed = (time.time() - start_time) * 1000
             if elapsed > self.max_time_ms:
+                _log("debug", "ai_timeout_in_search",
+                     depth=depth,
+                     elapsed_ms=int(elapsed))
                 return None
             
             # 模拟着法
@@ -410,6 +454,11 @@ class ChessAI:
             if game_over.is_over:
                 # 吃子获胜
                 self.nodes_searched += 1
+                _log("debug", "ai_checkmate_found",
+                     depth=depth,
+                     move=f"{chr(ord('a') + move.from_col)}{move.from_row + 1}"
+                          f"{chr(ord('a') + move.to_col)}{move.to_row + 1}",
+                     captured=captured)
                 return SearchResult(
                     move=move,
                     score=self.MATE_SCORE,
@@ -614,6 +663,12 @@ def get_ai_move(
     
     depth = depth_map.get(difficulty, 3)
     
+    _log("info", "get_ai_move",
+         difficulty=difficulty.value,
+         depth=depth,
+         max_time_ms=max_time_ms,
+         turn=turn.value)
+    
     ai = ChessAI(
         depth=depth,
         use_iterative_deepening=True,
@@ -621,4 +676,13 @@ def get_ai_move(
     )
     
     result = ai.best_move(board, turn)
+    
+    _log("info", "get_ai_move_result",
+         move=f"{chr(ord('a') + result.move.from_col)}{result.move.from_row + 1}"
+              f"{chr(ord('a') + result.move.to_col)}{result.move.to_row + 1}",
+         score=result.score,
+         time_ms=int(result.time_ms),
+         nodes=result.nodes_searched,
+         is_checkmate=result.is_checkmate)
+    
     return result.move

@@ -3,7 +3,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import Optional, Dict, Callable, Any
+import uuid
+from typing import Optional, Dict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from starlette.websockets import WebSocketState
 import uvicorn
@@ -14,7 +15,17 @@ from .player_session import PlayerSession, ConnectionState
 from .protocol import outbound as out_msg
 
 
+# Configure module logger
 logger = logging.getLogger(__name__)
+
+
+def _log(level: str, msg: str, **kwargs):
+    """Structured logging helper."""
+    parts = [msg]
+    for k, v in kwargs.items():
+        parts.append(f"{k}={v}")
+    log_msg = " | ".join(parts)
+    getattr(logger, level)(log_msg)
 
 
 class ConnectionManager:
@@ -24,6 +35,7 @@ class ConnectionManager:
         self._connections: Dict[str, WebSocket] = {}  # session_id -> websocket
         self._sessions: Dict[str, PlayerSession] = {}  # session_id -> session
         self._lock = asyncio.Lock()
+        _log("debug", "connection_manager_init")
 
     async def connect(self, session: PlayerSession, websocket: WebSocket) -> None:
         """Register a new connection."""
@@ -33,28 +45,44 @@ class ConnectionManager:
             session.websocket = websocket
             session.state = ConnectionState.CONNECTED
             session.update_activity()
+            _log("info", "session_connected",
+                 session_id=session.session_id,
+                 user_id=session.user_id,
+                 username=session.username)
 
     async def disconnect(self, session_id: str) -> None:
         """Remove a connection."""
         async with self._lock:
-            if session_id in self._connections:
-                del self._connections[session_id]
+            user_id = None
             if session_id in self._sessions:
+                user_id = self._sessions[session_id].user_id
                 self._sessions[session_id].state = ConnectionState.DISCONNECTED
                 self._sessions[session_id].websocket = None
+            if session_id in self._connections:
+                del self._connections[session_id]
+            _log("info", "session_disconnected",
+                 session_id=session_id,
+                 user_id=user_id)
 
     async def send_to(self, session_id: str, data: dict) -> bool:
         """Send a message to a specific session."""
         async with self._lock:
             ws = self._connections.get(session_id)
             if ws is None:
+                _log("warning", "send_to_session_not_found",
+                     session_id=session_id)
                 return False
             try:
                 if ws.client_state == WebSocketState.CONNECTED:
                     await ws.send_json(data)
+                    _log("debug", "message_sent",
+                         session_id=session_id,
+                         msg_type=data.get("type"))
                     return True
             except Exception as e:
-                logger.warning(f"Failed to send to {session_id}: {e}")
+                _log("error", "send_to_error",
+                     session_id=session_id,
+                     error=str(e))
         return False
 
     async def broadcast_to_room(
@@ -67,6 +95,8 @@ class ConnectionManager:
         """Broadcast a message to all sessions in a room."""
         room = await room_manager.get_room(room_id)
         if room is None:
+            _log("warning", "broadcast_room_not_found",
+                 room_id=room_id)
             return
 
         targets = []
@@ -78,6 +108,11 @@ class ConnectionManager:
         for session_id in targets:
             if session_id != exclude_session:
                 await self.send_to(session_id, data)
+
+        _log("debug", "broadcast_to_room",
+             room_id=room_id,
+             msg_type=data.get("type"),
+             recipients=len(targets))
 
     def get_session(self, session_id: str) -> Optional[PlayerSession]:
         """Get a session by ID."""
@@ -101,11 +136,18 @@ class GameWebSocketServer:
         self.host = host
         self.port = port
         self.game_callback_url = game_callback_url
+        self.server_id = str(uuid.uuid4())[:8]
 
         self.app = FastAPI(title="Xiangqi Game Service")
         self.room_manager = RoomManager()
         self.message_handler = MessageHandler(self.room_manager)
         self.connection_manager = ConnectionManager()
+
+        _log("info", "game_server_init",
+             server_id=self.server_id,
+             host=host,
+             port=port,
+             callback_url=game_callback_url)
 
         self._setup_routes()
         self._setup_game_callback()
@@ -114,7 +156,11 @@ class GameWebSocketServer:
         """Setup callback for game over events."""
         async def on_game_over(room):
             """Called when a game ends."""
-            logger.info(f"Game over in room {room.room_id}: {room.result}")
+            _log("info", "game_over_event",
+                 room_id=room.room_id,
+                 result=room.result,
+                 winner=room.winner,
+                 reason=room.reason)
 
             # Notify both players
             game_over_msg = out_msg.game_over_message(
@@ -145,7 +191,7 @@ class GameWebSocketServer:
 
         payload = {
             "room_id": room.room_id,
-            "game_id": room.room_id,  # Using room_id as game_id for now
+            "game_id": room.room_id,
             "result": room.result or "",
             "winner": room.winner or "none",
             "red_user_id": room.red_session.user_id if room.red_session else None,
@@ -157,22 +203,30 @@ class GameWebSocketServer:
 
         try:
             async with httpx.AsyncClient() as client:
-                await client.post(
+                response = await client.post(
                     self.game_callback_url,
                     json=payload,
                     timeout=5.0,
                 )
-                logger.info(f"Game result callback sent for room {room.room_id}")
+                _log("info", "game_result_callback_sent",
+                     room_id=room.room_id,
+                     status_code=response.status_code)
         except Exception as e:
-            logger.warning(f"Failed to send game result callback: {e}")
+            _log("error", "game_result_callback_failed",
+                 room_id=room.room_id,
+                 error=str(e))
 
     async def _cleanup_room(self, room_id: str) -> None:
         """Clean up a room after game ends."""
+        _log("debug", "cleanup_room_scheduled",
+             room_id=room_id,
+             delay_seconds=300)
         await asyncio.sleep(300)  # Keep room for 5 minutes for reconnect
         room = await self.room_manager.get_room(room_id)
         if room and room.state.value == "finished":
             room.cleanup()
-            logger.info(f"Room {room_id} cleaned up")
+            _log("info", "room_cleaned_up",
+                 room_id=room_id)
 
     def _setup_routes(self) -> None:
         """Setup FastAPI routes."""
@@ -182,6 +236,7 @@ class GameWebSocketServer:
             """Health check endpoint."""
             return {
                 "status": "ok",
+                "server_id": self.server_id,
                 "active_connections": self.connection_manager.active_connections,
                 "active_rooms": self.room_manager.count_active_rooms(),
             }
@@ -190,6 +245,7 @@ class GameWebSocketServer:
         async def stats():
             """Server statistics."""
             return {
+                "server_id": self.server_id,
                 "active_connections": self.connection_manager.active_connections,
                 "active_rooms": self.room_manager.count_active_rooms(),
             }
@@ -210,6 +266,14 @@ class GameWebSocketServer:
             - user_id: User ID
             - username: Username
             """
+            start_time = time.time()
+
+            _log("info", "websocket_connection_start",
+                 room_id=room_id,
+                 user_id=user_id,
+                 username=username,
+                 token_provided=bool(token))
+
             # Create session
             session = PlayerSession(
                 user_id=user_id,
@@ -218,6 +282,10 @@ class GameWebSocketServer:
             )
 
             await websocket.accept()
+
+            _log("debug", "websocket_accepted",
+                 room_id=room_id,
+                 session_id=session.session_id)
 
             # Check if reconnecting
             reconnect_data = None
@@ -228,17 +296,21 @@ class GameWebSocketServer:
                 )
                 if first_msg.get("type") == "reconnect":
                     reconnect_data = first_msg
+                    _log("info", "reconnect_attempt",
+                         room_id=room_id,
+                         session_id=session.session_id)
             except asyncio.TimeoutError:
-                pass
-            except Exception:
-                pass
+                _log("debug", "first_message_timeout",
+                     room_id=room_id,
+                     session_id=session.session_id)
+            except Exception as e:
+                _log("warning", "first_message_error",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     error=str(e))
 
             # Connect
             await self.connection_manager.connect(session, websocket)
-            logger.info(
-                f"Client connected: session={session.session_id}, "
-                f"user={username}, room={room_id}"
-            )
 
             try:
                 # Handle reconnection if needed
@@ -249,28 +321,53 @@ class GameWebSocketServer:
                     )
                     if success:
                         await websocket.send_json(response)
+                        _log("info", "reconnect_success",
+                             room_id=room_id,
+                             session_id=session.session_id)
                     else:
                         await websocket.send_json(response)
+                        _log("warning", "reconnect_failed",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             response=response)
                         return
 
                 # Join room
+                _log("debug", "joining_room",
+                     room_id=room_id,
+                     session_id=session.session_id)
+
                 room = await self.room_manager.get_room(room_id)
-                logger.info(f"[DEBUG] get_room({room_id}) = {room}")
                 if room is None:
+                    _log("info", "creating_room",
+                         room_id=room_id,
+                         session_id=session.session_id)
                     room = await self.room_manager.create_room(room_id=room_id)
-                    logger.info(f"[DEBUG] created room: {room}")
 
                 success, msg = await self.room_manager.join_room(room_id, session)
-                logger.info(f"[DEBUG] join_room result: success={success}, msg={msg}, session.side={session.side}")
                 if not success:
+                    _log("warning", "join_room_failed",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         reason=msg)
                     await websocket.send_json(
                         out_msg.error_message(3001, msg)
                     )
                     return
 
+                _log("info", "join_room_success",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     side=session.side)
+
                 # Send game start or wait message
                 room = await self.room_manager.get_room(room_id)
                 if room.state.value == "playing":
+                    _log("info", "game_starting",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         side=session.side)
+
                     await websocket.send_json(
                         out_msg.game_start_message(
                             room_id=room_id,
@@ -292,35 +389,73 @@ class GameWebSocketServer:
                                 black_time=room.black_session.remaining_time if room.black_session else 600,
                             )
                         )
+                        _log("info", "opponent_notified_game_start",
+                             room_id=room_id,
+                             opponent_session=opponent.session_id)
                 else:
+                    _log("debug", "waiting_for_opponent",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         room_state=room.state.value)
                     await websocket.send_json({
                         "type": "waiting",
                         "data": {"room_id": room_id, "side": session.side},
                     })
 
                 # Message loop
+                message_count = 0
                 while True:
                     try:
                         data = await websocket.receive_json()
                         session.update_activity()
+                        message_count += 1
+
+                        _log("debug", "message_received",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             msg_type=data.get("type"),
+                             message_count=message_count)
 
                         response = await self.message_handler.handle(session, data)
                         if response:
+                            _log("debug", "message_response_sent",
+                                 room_id=room_id,
+                                 session_id=session.session_id,
+                                 msg_type=response.get("type"))
                             await websocket.send_json(response)
 
                     except WebSocketDisconnect:
-                        logger.info(f"Client disconnected: {session.session_id}")
+                        duration = time.time() - start_time
+                        _log("info", "client_disconnected",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             duration_seconds=round(duration, 2),
+                             messages_received=message_count)
                         break
                     except Exception as e:
-                        logger.error(f"Error in message loop: {e}", exc_info=True)
+                        _log("error", "message_loop_error",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             error=str(e),
+                             error_type=type(e).__name__)
                         await websocket.send_json(
                             out_msg.error_message(1000, str(e))
                         )
 
             except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected: {session.session_id}")
+                duration = time.time() - start_time
+                _log("info", "websocket_disconnected",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     duration_seconds=round(duration, 2))
             except Exception as e:
-                logger.error(f"WebSocket error: {e}", exc_info=True)
+                duration = time.time() - start_time
+                _log("error", "websocket_error",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     error=str(e),
+                     error_type=type(e).__name__,
+                     duration_seconds=round(duration, 2))
             finally:
                 # Mark as disconnected but keep session for reconnect
                 session.disconnect()
@@ -337,11 +472,18 @@ class GameWebSocketServer:
                                 timeout=60,
                             )
                         )
+                        _log("info", "opponent_notified_disconnect",
+                             room_id=room_id,
+                             opponent_session=opponent.session_id,
+                             reason="disconnect")
 
                 await self.connection_manager.disconnect(session.session_id)
 
     def run(self) -> None:
         """Run the server."""
+        _log("info", "server_starting",
+             host=self.host,
+             port=self.port)
         config = uvicorn.Config(
             self.app,
             host=self.host,
