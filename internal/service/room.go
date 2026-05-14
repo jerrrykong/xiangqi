@@ -72,7 +72,7 @@ func (s *RoomService) CreateRoom(ctx context.Context, userID int64) (*model.Crea
 	// Set creator as red player
 	room.RedUserID.Int64 = userID
 	room.RedUserID.Valid = true
-	room.RedReady = true // Creator is auto-ready
+	// Note: Creator is NOT auto-ready, they need to click Ready like everyone else
 
 	if err := s.roomRepo.Create(ctx, room); err != nil {
 		return nil, err
