@@ -86,3 +86,21 @@ type CreateRoomResponse struct {
 	Status    RoomStatus `json:"status"`
 	CreatedAt string     `json:"created_at"`
 }
+
+// RoomUserInfo contains a player's info within a room detail response
+type RoomUserInfo struct {
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+	Rating   int    `json:"rating,omitempty"`
+}
+
+// RoomDetailResponse is the full room detail returned by GET /rooms/:id
+type RoomDetailResponse struct {
+	RoomID    string        `json:"room_id"`
+	Status    RoomStatus    `json:"status"`
+	Type      RoomType      `json:"type"`
+	RedUser   *RoomUserInfo `json:"red_user,omitempty"`
+	BlackUser *RoomUserInfo `json:"black_user,omitempty"`
+	RedReady  bool          `json:"red_ready"`
+	BlackReady bool         `json:"black_ready"`
+}

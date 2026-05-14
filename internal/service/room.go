@@ -300,6 +300,63 @@ func (s *RoomService) GetUserCurrentRoom(ctx context.Context, userID int64) (*mo
 	return s.roomRepo.GetUserCurrentRoom(ctx, userID)
 }
 
+// GetRoomDetail returns full room details including player information
+// Returns 404 if the room doesn't exist OR the user is not in the room
+func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID int64) (*model.RoomDetailResponse, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRoomNotFound
+		}
+		return nil, err
+	}
+
+	// Only allow participants to view room details
+	isParticipant := (room.RedUserID.Valid && room.RedUserID.Int64 == userID) ||
+		(room.BlackUserID.Valid && room.BlackUserID.Int64 == userID)
+	if !isParticipant {
+		return nil, ErrRoomNotFound
+	}
+
+	detail := &model.RoomDetailResponse{
+		RoomID:     room.ID,
+		Status:     room.Status,
+		Type:       room.Type,
+		RedReady:   room.RedReady,
+		BlackReady: room.BlackReady,
+	}
+
+	if room.RedUserID.Valid {
+		u, _ := s.userRepo.GetByID(ctx, room.RedUserID.Int64)
+		elo, _ := s.eloRepo.GetByUserID(ctx, room.RedUserID.Int64)
+		if u != nil {
+			detail.RedUser = &model.RoomUserInfo{
+				UserID:   u.ID,
+				Username: u.Username,
+			}
+			if elo != nil {
+				detail.RedUser.Rating = elo.Rating
+			}
+		}
+	}
+
+	if room.BlackUserID.Valid {
+		u, _ := s.userRepo.GetByID(ctx, room.BlackUserID.Int64)
+		elo, _ := s.eloRepo.GetByUserID(ctx, room.BlackUserID.Int64)
+		if u != nil {
+			detail.BlackUser = &model.RoomUserInfo{
+				UserID:   u.ID,
+				Username: u.Username,
+			}
+			if elo != nil {
+				detail.BlackUser.Rating = elo.Rating
+			}
+		}
+	}
+
+	return detail, nil
+}
+
 // CreatePvERoom creates a room for PvE game
 func (s *RoomService) CreatePvERoom(ctx context.Context, userID int64, difficulty int) (*model.ReadyResponse, error) {
 	// Create room

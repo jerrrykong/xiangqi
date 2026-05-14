@@ -8,6 +8,8 @@ import type {
   RoomStatus,
 } from '@/types/api'
 import * as roomApi from '@/api/room'
+import type { RoomDetail } from '@/api/room'
+import { useAuthStore } from '@/stores/auth'
 
 export const useRoomStore = defineStore('room', () => {
   // 状态
@@ -90,6 +92,46 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  // 恢复已在房间内的状态（刷新页面时使用，不调用 join，只读取房间信息）
+  async function restoreRoom(roomId: string): Promise<void> {
+    const authStore = useAuthStore()
+    const roomDetail: RoomDetail = await roomApi.getRoom(roomId)
+
+    const userId = authStore.user?.user_id
+    let yourSide: 'red' | 'black' = 'red'
+    let opponent: { userId: number; username: string; rating?: number } | undefined
+
+    if (roomDetail.red_user && roomDetail.red_user.user_id === userId) {
+      yourSide = 'red'
+      if (roomDetail.black_user) {
+        opponent = {
+          userId: roomDetail.black_user.user_id,
+          username: roomDetail.black_user.username,
+          rating: roomDetail.black_user.rating,
+        }
+      }
+    } else if (roomDetail.black_user && roomDetail.black_user.user_id === userId) {
+      yourSide = 'black'
+      if (roomDetail.red_user) {
+        opponent = {
+          userId: roomDetail.red_user.user_id,
+          username: roomDetail.red_user.username,
+          rating: roomDetail.red_user.rating,
+        }
+      }
+    }
+
+    currentRoom.value = {
+      roomId: roomDetail.room_id,
+      status: roomDetail.status,
+      yourSide,
+      opponent,
+      redReady: roomDetail.red_ready,
+      blackReady: roomDetail.black_ready,
+      gameStarted: false,
+    }
+  }
+
   // 准备
   async function playerReady(): Promise<ReadyResponse> {
     if (!currentRoom.value) throw new Error('Not in a room')
@@ -164,6 +206,7 @@ export const useRoomStore = defineStore('room', () => {
     fetchRoomList,
     createRoom,
     joinRoom,
+    restoreRoom,
     playerReady,
     leaveRoom,
     deleteRoom,

@@ -85,19 +85,15 @@ func (h *RoomHandler) GetMyRoom(c *gin.Context) {
 // GET /rooms/:id
 func (h *RoomHandler) GetRoom(c *gin.Context) {
 	roomID := c.Param("id")
+	userID := middleware.GetUserID(c)
 
-	room, err := h.roomSvc.GetUserCurrentRoom(c.Request.Context(), middleware.GetUserID(c))
+	detail, err := h.roomSvc.GetRoomDetail(c.Request.Context(), roomID, userID)
 	if err != nil {
 		response.Fail(c, http.StatusNotFound, shared.ErrCodeRoomNotFound, "room not found")
 		return
 	}
 
-	if room.ID != roomID {
-		response.Fail(c, http.StatusNotFound, shared.ErrCodeRoomNotFound, "room not found")
-		return
-	}
-
-	response.OK(c, room)
+	response.OK(c, detail)
 }
 
 // JoinRoom joins a room

@@ -20,19 +20,35 @@ const isOwner = computed(() => {
 let pollInterval: number | null = null
 
 onMounted(async () => {
-  // 如果没有房间信息，获取房间详情
-  if (!roomStore.currentRoom || roomStore.currentRoom.roomId !== roomId.value) {
-    try {
-      await roomStore.joinRoom(roomId.value)
-    } catch (error: any) {
-      ElMessage.error('房间不存在或已关闭')
-      router.push('/lobby')
-      return
-    }
+  // store 已有该房间数据，直接使用（正常创建/加入流程）
+  if (roomStore.currentRoom && roomStore.currentRoom.roomId === roomId.value) {
+    pollInterval = window.setInterval(pollRoomStatus, 3000)
+    return
   }
 
-  // 轮询房间状态
-  pollInterval = window.setInterval(pollRoomStatus, 3000)
+  // store 没有数据（刷新页面），先尝试恢复已在房间的状态
+  try {
+    await roomStore.restoreRoom(roomId.value)
+    pollInterval = window.setInterval(pollRoomStatus, 3000)
+    return
+  } catch (restoreError: any) {
+    const errCode = restoreError.response?.data?.code
+    // 404：不在这个房间（也许是别人的房间，可以尝试加入）
+    if (errCode === 3002 /* RoomNotFound */ || restoreError.response?.status === 404) {
+      try {
+        await roomStore.joinRoom(roomId.value)
+        pollInterval = window.setInterval(pollRoomStatus, 3000)
+        return
+      } catch (joinError: any) {
+        ElMessage.error('房间不存在或已关闭')
+        router.push('/lobby')
+        return
+      }
+    }
+    // 其他错误
+    ElMessage.error('无法进入房间')
+    router.push('/lobby')
+  }
 })
 
 onUnmounted(() => {

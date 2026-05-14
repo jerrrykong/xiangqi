@@ -31,17 +31,20 @@ export async function getRoomList(
   return response.data.data!
 }
 
-// 获取房间详情
-export async function getRoom(roomId: string): Promise<{
+export interface RoomDetail {
   room_id: string
   status: RoomStatus
+  type: string
   red_user?: { user_id: number; username: string; rating?: number }
   black_user?: { user_id: number; username: string; rating?: number }
   red_ready: boolean
   black_ready: boolean
-}> {
-  const response = await api.get<ApiResponse<unknown>>(`/rooms/${roomId}`)
-  return response.data.data as any
+}
+
+// 获取房间详情
+export async function getRoom(roomId: string): Promise<RoomDetail> {
+  const response = await api.get<ApiResponse<RoomDetail>>(`/rooms/${roomId}`)
+  return response.data.data!
 }
 
 // 加入房间
