@@ -69,6 +69,15 @@ export const useRoomStore = defineStore('room', () => {
       currentRoom.value.status = detail.status
       currentRoom.value.redReady = detail.red_ready
       currentRoom.value.blackReady = detail.black_ready
+
+      // 如果房间状态变为 playing，获取游戏信息
+      if (detail.status === 'playing' && !currentRoom.value.gameStarted) {
+        // 调用 playerReady 获取 game_started、game_ws_url 和 game_token
+        const readyResp = await roomApi.playerReady(currentRoom.value.roomId)
+        currentRoom.value.gameStarted = readyResp.game_started
+        currentRoom.value.gameWsUrl = readyResp.game_ws_url
+        currentRoom.value.gameToken = readyResp.game_token
+      }
     } catch (e) {
       // 如果获取失败，清空房间状态
       currentRoom.value = null

@@ -22,14 +22,14 @@ let pollInterval: number | null = null
 onMounted(async () => {
   // store 已有该房间数据，直接使用（正常创建/加入流程）
   if (roomStore.currentRoom && roomStore.currentRoom.roomId === roomId.value) {
-    pollInterval = window.setInterval(pollRoomStatus, 3000)
+    pollInterval = window.setInterval(pollRoomStatus, 1000) // 缩短到 1 秒
     return
   }
 
   // store 没有数据（刷新页面），先尝试恢复已在房间的状态
   try {
     await roomStore.restoreRoom(roomId.value)
-    pollInterval = window.setInterval(pollRoomStatus, 3000)
+    pollInterval = window.setInterval(pollRoomStatus, 1000)
     return
   } catch (restoreError: any) {
     const errCode = restoreError.response?.data?.code
@@ -37,7 +37,7 @@ onMounted(async () => {
     if (errCode === 3002 /* RoomNotFound */ || restoreError.response?.status === 404) {
       try {
         await roomStore.joinRoom(roomId.value)
-        pollInterval = window.setInterval(pollRoomStatus, 3000)
+        pollInterval = window.setInterval(pollRoomStatus, 1000)
         return
       } catch (joinError: any) {
         ElMessage.error('房间不存在或已关闭')
@@ -196,16 +196,21 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
 
           <!-- 操作按钮 -->
           <div class="actions">
+            <!-- 准备按钮：双方都未准备时显示 -->
             <template v-if="!roomStore.currentRoom?.gameStarted">
-              <el-button
-                v-if="!roomStore.currentRoom?.redReady || !roomStore.currentRoom?.blackReady"
-                type="primary"
-                size="large"
-                class="full-width"
-                @click="handleReady"
-              >
-                {{ roomStore.currentRoom?.yourSide === 'red' && !roomStore.currentRoom?.redReady ? '准备' : '等待对方' }}
-              </el-button>
+              <!-- 如果自己已准备，显示等待 -->
+              <template v-if="(roomStore.currentRoom?.yourSide === 'red' && roomStore.currentRoom?.redReady) ||
+                           (roomStore.currentRoom?.yourSide === 'black' && roomStore.currentRoom?.blackReady)">
+                <el-button type="info" size="large" class="full-width" disabled>
+                  等待对方...
+                </el-button>
+              </template>
+              <!-- 如果自己未准备，显示准备按钮 -->
+              <template v-else>
+                <el-button type="primary" size="large" class="full-width" @click="handleReady">
+                  准备
+                </el-button>
+              </template>
             </template>
 
             <el-button
