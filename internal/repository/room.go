@@ -125,8 +125,10 @@ func (r *RoomRepository) GetWaitingRooms(ctx context.Context, page, pageSize int
 	var rooms []model.Room
 	var total int64
 
+	// 只返回有红方的房间（red_user_id IS NOT NULL）
 	query := r.db.WithContext(ctx).Model(&model.Room{}).
-		Where("status = ?", model.RoomStatusWaiting)
+		Where("status = ?", model.RoomStatusWaiting).
+		Where("red_user_id IS NOT NULL")
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -159,20 +161,20 @@ func (r *RoomRepository) Delete(ctx context.Context, roomID string) error {
 }
 
 // LeaveRoom removes a player from a room
+// If the red player leaves, the room is deleted (a room without a red player is invalid)
+// If the black player leaves, only the black player info is cleared
 func (r *RoomRepository) LeaveRoom(ctx context.Context, roomID string, userID int64) error {
 	room, err := r.GetByID(ctx, roomID)
 	if err != nil {
 		return err
 	}
 
+	// If red player leaves, delete the room (no red player = invalid room)
 	if room.RedUserID.Valid && room.RedUserID.Int64 == userID {
-		return r.db.WithContext(ctx).Model(&model.Room{}).Where("id = ?", roomID).Updates(map[string]interface{}{
-			"red_user_id": nil,
-			"red_ready":   false,
-			"status":      model.RoomStatusWaiting,
-		}).Error
+		return r.db.WithContext(ctx).Where("id = ?", roomID).Delete(&model.Room{}).Error
 	}
 
+	// If black player leaves, just clear black player info
 	if room.BlackUserID.Valid && room.BlackUserID.Int64 == userID {
 		return r.db.WithContext(ctx).Model(&model.Room{}).Where("id = ?", roomID).Updates(map[string]interface{}{
 			"black_user_id": nil,
