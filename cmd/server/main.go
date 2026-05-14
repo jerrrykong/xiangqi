@@ -248,6 +248,7 @@ func setupRouter(
 		{
 			rooms.POST("", roomHandler.CreateRoom)
 			rooms.GET("", roomHandler.ListRooms)
+			rooms.GET("/me", roomHandler.GetMyRoom)
 			rooms.GET("/:id", roomHandler.GetRoom)
 			rooms.POST("/:id/join", roomHandler.JoinRoom)
 			rooms.POST("/:id/ready", roomHandler.PlayerReady)

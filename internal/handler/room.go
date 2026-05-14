@@ -59,6 +59,28 @@ func (h *RoomHandler) ListRooms(c *gin.Context) {
 	})
 }
 
+// GetMyRoom returns the room the current user is in
+// GET /rooms/me
+func (h *RoomHandler) GetMyRoom(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+
+	room, err := h.roomSvc.GetUserCurrentRoom(c.Request.Context(), userID)
+	if err != nil {
+		response.Fail(c, http.StatusNotFound, shared.ErrCodeRoomNotFound, "not in any room")
+		return
+	}
+	if room == nil {
+		response.Fail(c, http.StatusNotFound, shared.ErrCodeRoomNotFound, "not in any room")
+		return
+	}
+
+	response.OK(c, gin.H{
+		"room_id": room.ID,
+		"status":  room.Status,
+		"type":    room.Type,
+	})
+}
+
 // GetRoom returns a room's details
 // GET /rooms/:id
 func (h *RoomHandler) GetRoom(c *gin.Context) {

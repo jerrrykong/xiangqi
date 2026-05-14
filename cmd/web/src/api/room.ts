@@ -14,6 +14,12 @@ export async function createRoom(): Promise<CreateRoomResponse> {
   return response.data.data!
 }
 
+// 获取当前用户所在房间
+export async function getMyRoom(): Promise<{ room_id: string; status: RoomStatus; type: string }> {
+  const response = await api.get<ApiResponse<{ room_id: string; status: RoomStatus; type: string }>>('/rooms/me')
+  return response.data.data!
+}
+
 // 获取房间列表
 export async function getRoomList(
   page = 1,

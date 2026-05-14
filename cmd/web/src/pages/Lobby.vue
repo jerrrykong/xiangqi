@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
 import { getRankings, getHistory } from '@/api/user'
+import { getMyRoom } from '@/api/room'
 import type { RankingItem, HistoryItem } from '@/types/api'
 
 const router = useRouter()
@@ -26,6 +27,17 @@ const winRate = computed(() => {
 })
 
 onMounted(async () => {
+  // 检查用户是否已经在房间内，如果是则直接跳转
+  try {
+    const myRoom = await getMyRoom()
+    if (myRoom?.room_id) {
+      router.push(`/room/${myRoom.room_id}`)
+      return
+    }
+  } catch {
+    // 没有在房间内，正常继续
+  }
+
   await Promise.all([fetchRankings(), fetchHistory()])
 })
 
@@ -54,8 +66,21 @@ async function handleCreateRoom() {
     ElMessage.success('房间创建成功')
     router.push(`/room/${response.room_id}`)
   } catch (error: any) {
+    const errCode = error.response?.data?.code
     const message = error.response?.data?.message || '创建房间失败'
-    ElMessage.error(message)
+
+    // 已经在房间内，查询当前房间并跳转
+    if (errCode === 3004 || message.includes('already in a room')) {
+      try {
+        const myRoom = await getMyRoom()
+        ElMessage.info('您已在房间内，正在跳转...')
+        router.push(`/room/${myRoom.room_id}`)
+      } catch {
+        ElMessage.error('获取当前房间失败，请刷新页面重试')
+      }
+    } else {
+      ElMessage.error(message)
+    }
   } finally {
     isLoading.value = false
   }
