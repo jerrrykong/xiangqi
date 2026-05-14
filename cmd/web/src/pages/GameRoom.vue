@@ -58,6 +58,13 @@ onUnmounted(() => {
 })
 
 async function pollRoomStatus() {
+  // 获取最新房间状态
+  try {
+    await roomStore.fetchCurrentRoom()
+  } catch (e) {
+    // 忽略错误，静默重试
+  }
+
   // 如果游戏已开始，跳转到游戏页面
   if (roomStore.currentRoom?.gameStarted && roomStore.currentRoom?.gameWsUrl) {
     router.push(`/game/${roomId.value}`)
@@ -157,7 +164,11 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
               <div class="player-title">
                 {{ roomStore.currentRoom?.yourSide === 'red' ? '你 (红方)' : '红方' }}
               </div>
-              <div v-if="roomStore.currentRoom?.redReady" class="ready-text">
+              <!-- 如果你是黑方，显示红方对手的名字 -->
+              <div v-if="roomStore.currentRoom?.yourSide === 'black' && roomStore.currentRoom?.opponent" class="opponent-name">
+                {{ roomStore.currentRoom.opponent.username }}
+              </div>
+              <div v-else-if="roomStore.currentRoom?.redReady" class="ready-text">
                 <span class="check">✓</span> 已准备
               </div>
               <div v-else class="waiting-text">等待中...</div>
@@ -172,7 +183,8 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
               <div class="player-title">
                 {{ roomStore.currentRoom?.yourSide === 'black' ? '你 (黑方)' : '黑方' }}
               </div>
-              <div v-if="roomStore.currentRoom?.opponent" class="opponent-name">
+              <!-- 如果你是红方，显示黑方对手的名字 -->
+              <div v-if="roomStore.currentRoom?.yourSide === 'red' && roomStore.currentRoom?.opponent" class="opponent-name">
                 {{ roomStore.currentRoom.opponent.username }}
               </div>
               <div v-else-if="roomStore.currentRoom?.blackReady" class="ready-text">

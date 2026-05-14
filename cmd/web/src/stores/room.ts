@@ -35,6 +35,46 @@ export const useRoomStore = defineStore('room', () => {
   // 计算属性
   const isInRoom = computed(() => !!currentRoom.value)
 
+  // 获取当前房间最新状态
+  async function fetchCurrentRoom(): Promise<void> {
+    if (!currentRoom.value) return
+
+    try {
+      const detail: RoomDetail = await roomApi.getRoom(currentRoom.value.roomId)
+      const authStore = useAuthStore()
+      const userId = authStore.user?.user_id
+
+      // 根据当前用户确定 yourSide 和 opponent
+      if (detail.red_user && detail.red_user.user_id === userId) {
+        currentRoom.value.yourSide = 'red'
+        currentRoom.value.opponent = detail.black_user
+          ? {
+              userId: detail.black_user.user_id,
+              username: detail.black_user.username,
+              rating: detail.black_user.rating,
+            }
+          : undefined
+      } else if (detail.black_user && detail.black_user.user_id === userId) {
+        currentRoom.value.yourSide = 'black'
+        currentRoom.value.opponent = detail.red_user
+          ? {
+              userId: detail.red_user.user_id,
+              username: detail.red_user.username,
+              rating: detail.red_user.rating,
+            }
+          : undefined
+      }
+
+      // 更新房间状态
+      currentRoom.value.status = detail.status
+      currentRoom.value.redReady = detail.red_ready
+      currentRoom.value.blackReady = detail.black_ready
+    } catch (e) {
+      // 如果获取失败，清空房间状态
+      currentRoom.value = null
+    }
+  }
+
   // 获取房间列表
   async function fetchRoomList(page = 1, pageSize = 20) {
     isLoading.value = true
@@ -204,6 +244,7 @@ export const useRoomStore = defineStore('room', () => {
     isInRoom,
     // 方法
     fetchRoomList,
+    fetchCurrentRoom,
     createRoom,
     joinRoom,
     restoreRoom,
