@@ -171,7 +171,9 @@ export const useRoomStore = defineStore('room', () => {
       opponent,
       redReady: roomDetail.red_ready,
       blackReady: roomDetail.black_ready,
-      gameStarted: false,
+      gameStarted: roomDetail.status === 'playing',
+      gameWsUrl: roomDetail.game_ws_url,
+      gameToken: roomDetail.game_token,
     }
   }
 

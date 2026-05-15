@@ -613,6 +613,14 @@ func (s *RoomService) GetUserCurrentRoom(ctx context.Context, userID int64) (*mo
 	return room, nil
 }
 
+// GetGameSession retrieves game session info for a room
+func (s *RoomService) GetGameSession(ctx context.Context, roomID string) (*SessionInfo, error) {
+	if s.gameProxy == nil {
+		return nil, errors.New("game proxy not available")
+	}
+	return s.gameProxy.GetSession(ctx, roomID)
+}
+
 // GetRoomDetail returns full room details including player information
 // Returns 404 if the room doesn't exist OR the user is not in the room
 func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID int64) (*model.RoomDetailResponse, error) {
@@ -660,6 +668,13 @@ func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID i
 		BlackReady: room.BlackReady,
 	}
 
+	// Determine user's side
+	if room.RedUserID.Valid && room.RedUserID.Int64 == userID {
+		detail.YourSide = "red"
+	} else if room.BlackUserID.Valid && room.BlackUserID.Int64 == userID {
+		detail.YourSide = "black"
+	}
+
 	if room.RedUserID.Valid {
 		u, _ := s.userRepo.GetByID(ctx, room.RedUserID.Int64)
 		elo, _ := s.eloRepo.GetByUserID(ctx, room.RedUserID.Int64)
@@ -685,6 +700,21 @@ func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID i
 			if elo != nil {
 				detail.BlackUser.Rating = elo.Rating
 			}
+		}
+	}
+
+	// If game is in progress, get session info from Redis
+	if room.Status == model.RoomStatusPlaying {
+		sessionInfo, err := s.GetGameSession(ctx, roomID)
+		if err != nil {
+			log.Warn("room_service_get_room_detail_session_error",
+				"room_id", roomID,
+				"error", err.Error(),
+			)
+		}
+		if sessionInfo != nil {
+			detail.GameWsURL = sessionInfo.WsURL
+			detail.GameToken = sessionInfo.SessionToken
 		}
 	}
 

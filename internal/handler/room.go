@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/jerrykong/xiangqi/internal/middleware"
+	"github.com/jerrykong/xiangqi/internal/model"
 	"github.com/jerrykong/xiangqi/internal/pkg/log"
 	"github.com/jerrykong/xiangqi/internal/pkg/response"
 	"github.com/jerrykong/xiangqi/internal/service"
@@ -141,11 +142,37 @@ func (h *RoomHandler) GetMyRoom(c *gin.Context) {
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 
-	response.OK(c, gin.H{
+	// Build response
+	resp := gin.H{
 		"room_id": room.ID,
 		"status":  room.Status,
 		"type":    room.Type,
-	})
+	}
+
+	// If game is in progress, get session info from Redis and determine yourSide
+	if room.Status == model.RoomStatusPlaying {
+		sessionInfo, err := h.roomSvc.GetGameSession(c.Request.Context(), room.ID)
+		if err != nil {
+			log.Warn("handler_get_my_room_session_error",
+				"user_id", userID,
+				"room_id", room.ID,
+				"error", err.Error(),
+			)
+		}
+		if sessionInfo != nil {
+			resp["game_ws_url"] = sessionInfo.WsURL
+			resp["game_token"] = sessionInfo.SessionToken
+		}
+
+		// Determine which side the user is on
+		if room.RedUserID.Valid && room.RedUserID.Int64 == userID {
+			resp["your_side"] = "red"
+		} else if room.BlackUserID.Valid && room.BlackUserID.Int64 == userID {
+			resp["your_side"] = "black"
+		}
+	}
+
+	response.OK(c, resp)
 }
 
 // GetRoom returns a room's details

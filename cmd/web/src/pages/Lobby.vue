@@ -31,6 +31,13 @@ onMounted(async () => {
   try {
     const myRoom = await getMyRoom()
     if (myRoom?.room_id) {
+      // 如果游戏正在进行，直接跳转到对局页面
+      if (myRoom.status === 'playing') {
+        ElMessage.info('检测到您有正在进行的对局，正在恢复...')
+        router.push(`/game/${myRoom.room_id}`)
+        return
+      }
+      // 否则跳转到房间页面
       router.push(`/room/${myRoom.room_id}`)
       return
     }

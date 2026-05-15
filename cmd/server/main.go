@@ -57,7 +57,7 @@ func main() {
 	jwtManager := jwt.NewJWTManager(cfg.JWT.Secret, cfg.JWT.ExpireHours)
 
 	// Initialize services
-	gameProxy := service.NewGameProxy(cfg.GameService.BaseURL, cfg.Internal.Secret, fmt.Sprintf("http://%s/internal/game/result", cfg.GetAddress()))
+	gameProxy := service.NewGameProxy(cfg.GameService.BaseURL, cfg.Internal.Secret, fmt.Sprintf("http://%s/internal/game/result", cfg.GetAddress()), redisClient)
 
 	userSvc := service.NewUserService(userRepo, eloRepo, gameRepo, jwtManager)
 	eloSvc := service.NewEloService(eloRepo, gameRepo)

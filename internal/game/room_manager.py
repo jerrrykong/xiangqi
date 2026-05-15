@@ -434,6 +434,64 @@ class RoomManager:
 
             return True, "Joined room successfully"
 
+    async def assign_side(
+        self,
+        room_id: str,
+        session: PlayerSession,
+        side: str,
+    ) -> tuple[bool, str]:
+        """
+        Assign a session to a specific side in a room.
+        Returns: (success, message)
+        """
+        _log("info", "room_assign_side_attempt",
+             room_id=room_id,
+             session_id=session.session_id,
+             user_id=session.user_id,
+             target_side=side)
+
+        async with self._lock:
+            room = self._rooms.get(room_id)
+            if room is None:
+                _log("warning", "room_assign_side_failed",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     reason="room_not_found")
+                return False, "Room not found"
+
+            # Assign to specified side
+            if side == "red":
+                if room.red_session is not None:
+                    _log("warning", "room_assign_side_failed",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         reason="red_already_taken")
+                    return False, "Red side already taken"
+                room.assign_red(session)
+            elif side == "black":
+                if room.black_session is not None:
+                    _log("warning", "room_assign_side_failed",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         reason="black_already_taken")
+                    return False, "Black side already taken"
+                room.assign_black(session)
+            else:
+                _log("warning", "room_assign_side_failed",
+                     room_id=room_id,
+                     session_id=session.session_id,
+                     reason="invalid_side")
+                return False, "Invalid side"
+
+            self._session_to_room[session.session_id] = room_id
+
+            _log("info", "room_assign_side_success",
+                 room_id=room_id,
+                 session_id=session.session_id,
+                 side=side)
+
+            return True, "Assigned successfully"
+
     async def leave_room(self, session_id: str) -> bool:
         """Remove a player from their room."""
         _log("info", "room_leave_attempt",

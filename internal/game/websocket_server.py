@@ -250,6 +250,68 @@ class GameWebSocketServer:
                 "active_rooms": self.room_manager.count_active_rooms(),
             }
 
+        @self.app.post("/internal/game/assign")
+        async def assign_game(request: dict):
+            """
+            HTTP endpoint for game assignment from Web service.
+
+            Request body:
+            {
+                "room_id": str,
+                "game_type": "pvp" | "pve",
+                "players": [{"user_id": int, "username": str, "side": "red" | "black"}],
+                "callback_url": str,
+                "difficulty"?: int (for PvE)
+            }
+            """
+            room_id = request.get("room_id")
+            game_type = request.get("game_type", "pvp")
+            players = request.get("players", [])
+            callback_url = request.get("callback_url")
+            difficulty = request.get("difficulty")
+
+            _log("info", "http_assign_game_request",
+                 room_id=room_id,
+                 game_type=game_type,
+                 player_count=len(players),
+                 difficulty=difficulty)
+
+            # Generate session token and WebSocket URL
+            import secrets
+            session_token = secrets.token_urlsafe(32)
+            ws_url = f"ws://localhost:{self.port}/game/{room_id}"
+
+            # Create room in room manager
+            room = await self.room_manager.create_room(room_id=room_id, room_type=game_type)
+
+            # Assign sides to players
+            for player in players:
+                session = PlayerSession(
+                    user_id=player.get("user_id"),
+                    username=player.get("username", ""),
+                    token=session_token,
+                )
+                side = player.get("side", "red")
+                success, _ = await self.room_manager.assign_side(room_id, session, side)
+                if success:
+                    _log("info", "player_assigned_to_room",
+                         room_id=room_id,
+                         user_id=player.get("user_id"),
+                         side=side)
+
+            _log("info", "http_assign_game_success",
+                 room_id=room_id,
+                 game_id=room_id,
+                 ws_url=ws_url,
+                 session_token=session_token[:8] + "...")
+
+            return {
+                "room_id": room_id,
+                "ws_url": ws_url,
+                "game_id": room_id,
+                "session_token": session_token,
+            }
+
         @self.app.websocket("/game/{room_id}")
         async def websocket_endpoint(
             websocket: WebSocket,

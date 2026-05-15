@@ -9,16 +9,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/jerrykong/xiangqi/internal/pkg/log"
 )
 
 // GameProxy handles communication with the Game service
 type GameProxy struct {
-	client    *http.Client
-	baseURL   string
-	secret    string
+	client      *http.Client
+	baseURL     string
+	secret      string
 	callbackURL string
+	redis       *redis.Client
 }
 
 // AssignRequest represents a game assignment request
@@ -40,21 +42,30 @@ type PlayerInfo struct {
 
 // AssignResponse represents a game assignment response
 type AssignResponse struct {
-	RoomID        string `json:"room_id"`
-	WsURL         string `json:"ws_url"`
-	GameID        string `json:"game_id"`
-	SessionToken  string `json:"session_token"`
+	RoomID       string `json:"room_id"`
+	WsURL        string `json:"ws_url"`
+	GameID       string `json:"game_id"`
+	SessionToken string `json:"session_token"`
+}
+
+// SessionInfo represents session information stored in Redis
+type SessionInfo struct {
+	RoomID       string `json:"room_id"`
+	WsURL        string `json:"ws_url"`
+	SessionToken string `json:"session_token"`
+	GameID       string `json:"game_id"`
 }
 
 // NewGameProxy creates a new GameProxy
-func NewGameProxy(baseURL, secret, callbackURL string) *GameProxy {
+func NewGameProxy(baseURL, secret, callbackURL string, redisClient *redis.Client) *GameProxy {
 	return &GameProxy{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		baseURL:    baseURL,
-		secret:     secret,
+		baseURL:     baseURL,
+		secret:      secret,
 		callbackURL: callbackURL,
+		redis:       redisClient,
 	}
 }
 
@@ -157,7 +168,63 @@ func (p *GameProxy) AssignGame(ctx context.Context, req *AssignRequest) (*Assign
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 
+	// Store session info in Redis for later retrieval
+	if p.redis != nil {
+		sessionInfo := SessionInfo{
+			RoomID:       req.RoomID,
+			WsURL:        assignResp.WsURL,
+			SessionToken: assignResp.SessionToken,
+			GameID:       assignResp.GameID,
+		}
+		if err := p.StoreSession(ctx, req.RoomID, &sessionInfo); err != nil {
+			log.Error("game_proxy_assign_store_session_error",
+				"room_id", req.RoomID,
+				"error", err.Error(),
+			)
+			// Don't fail the assignment if Redis storage fails
+		}
+	}
+
 	return &assignResp, nil
+}
+
+// StoreSession stores session information in Redis
+func (p *GameProxy) StoreSession(ctx context.Context, roomID string, info *SessionInfo) error {
+	if p.redis == nil {
+		return nil
+	}
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+
+	key := fmt.Sprintf("game:session:%s", roomID)
+	// Session expires in 24 hours
+	return p.redis.Set(ctx, key, data, 24*time.Hour).Err()
+}
+
+// GetSession retrieves session information from Redis
+func (p *GameProxy) GetSession(ctx context.Context, roomID string) (*SessionInfo, error) {
+	if p.redis == nil {
+		return nil, fmt.Errorf("redis not available")
+	}
+
+	key := fmt.Sprintf("game:session:%s", roomID)
+	data, err := p.redis.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var info SessionInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, err
+	}
+
+	return &info, nil
 }
 
 // HandleGameResult handles game result callback from Game service

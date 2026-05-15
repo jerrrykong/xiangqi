@@ -15,8 +15,22 @@ export async function createRoom(): Promise<CreateRoomResponse> {
 }
 
 // 获取当前用户所在房间
-export async function getMyRoom(): Promise<{ room_id: string; status: RoomStatus; type: string }> {
-  const response = await api.get<ApiResponse<{ room_id: string; status: RoomStatus; type: string }>>('/rooms/me')
+export async function getMyRoom(): Promise<{
+  room_id: string
+  status: RoomStatus
+  type: string
+  your_side?: 'red' | 'black'
+  game_ws_url?: string
+  game_token?: string
+}> {
+  const response = await api.get<ApiResponse<{
+    room_id: string
+    status: RoomStatus
+    type: string
+    your_side?: 'red' | 'black'
+    game_ws_url?: string
+    game_token?: string
+  }>>('/rooms/me')
   return response.data.data!
 }
 
@@ -39,6 +53,9 @@ export interface RoomDetail {
   black_user?: { user_id: number; username: string; rating?: number }
   red_ready: boolean
   black_ready: boolean
+  game_ws_url?: string
+  game_token?: string
+  your_side?: 'red' | 'black'
 }
 
 // 获取房间详情

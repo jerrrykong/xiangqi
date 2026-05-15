@@ -96,11 +96,14 @@ type RoomUserInfo struct {
 
 // RoomDetailResponse is the full room detail returned by GET /rooms/:id
 type RoomDetailResponse struct {
-	RoomID    string        `json:"room_id"`
-	Status    RoomStatus    `json:"status"`
-	Type      RoomType      `json:"type"`
-	RedUser   *RoomUserInfo `json:"red_user,omitempty"`
-	BlackUser *RoomUserInfo `json:"black_user,omitempty"`
-	RedReady  bool          `json:"red_ready"`
-	BlackReady bool         `json:"black_ready"`
+	RoomID     string        `json:"room_id"`
+	Status     RoomStatus    `json:"status"`
+	Type       RoomType      `json:"type"`
+	RedUser    *RoomUserInfo `json:"red_user,omitempty"`
+	BlackUser  *RoomUserInfo `json:"black_user,omitempty"`
+	RedReady   bool          `json:"red_ready"`
+	BlackReady bool          `json:"black_ready"`
+	GameWsURL  string        `json:"game_ws_url,omitempty"`
+	GameToken  string        `json:"game_token,omitempty"`
+	YourSide   string        `json:"your_side,omitempty"`
 }

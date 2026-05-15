@@ -26,4 +26,4 @@ internal:
   secret: "internal-service-secret-key"
 
 game_service:
-  base_url: "http://localhost:8081"
+  base_url: "http://localhost:8765"

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
 import { useGameStore } from '@/stores/game'
+import { wsManager } from '@/api/websocket'
 import ChessBoard from '@/components/ChessBoard.vue'
 import type { Position, Move } from '@/types/chess'
 
@@ -16,17 +17,41 @@ const gameStore = useGameStore()
 
 const roomId = computed(() => route.params.id as string)
 
+// 连接失败状态
+const showConnectionError = ref(false)
+const reconnecting = ref(false)
+
+// 监听 WebSocket 连接状态
+watch(() => wsManager.connectionState.value, (state) => {
+  // 如果连接失败（重连次数用尽或错误状态）
+  if (state === 'error' || (state === 'disconnected' && gameStore.board.length === 0)) {
+    // 等待一下，确认不是暂时的断开
+    setTimeout(() => {
+      if (!wsManager.isConnected.value && gameStore.board.length === 0) {
+        showConnectionError.value = true
+      }
+    }, 3000) // 等待3秒，给重连机制时间
+  }
+})
+
 // 初始化游戏
 onMounted(async () => {
   // 获取房间信息和 WebSocket 连接
   if (!roomStore.currentRoom || roomStore.currentRoom.roomId !== roomId.value) {
     try {
-      await roomStore.joinRoom(roomId.value)
+      await roomStore.restoreRoom(roomId.value)
     } catch (error) {
       ElMessage.error('无法加入房间')
       router.push('/lobby')
       return
     }
+  }
+
+  // 如果房间不是 playing 状态，跳转回房间页面
+  if (roomStore.currentRoom?.status !== 'playing') {
+    ElMessage.info('游戏尚未开始')
+    router.push(`/room/${roomId.value}`)
+    return
   }
 
   // 连接游戏 WebSocket
@@ -37,6 +62,40 @@ onMounted(async () => {
     router.push('/lobby')
   }
 })
+
+// 重新连接
+async function handleReconnect() {
+  reconnecting.value = true
+  showConnectionError.value = false
+
+  try {
+    // 重新获取房间信息（可能已更新）
+    await roomStore.restoreRoom(roomId.value)
+
+    if (roomStore.currentRoom?.gameWsUrl && roomStore.currentRoom?.gameToken) {
+      // 断开现有连接
+      wsManager.disconnect()
+      // 重新连接
+      gameStore.connect(roomStore.currentRoom.gameWsUrl, roomStore.currentRoom.gameToken)
+      ElMessage.success('正在重新连接...')
+    } else {
+      ElMessage.error('无法获取游戏连接信息')
+      router.push('/lobby')
+    }
+  } catch (error) {
+    ElMessage.error('重新连接失败')
+    router.push('/lobby')
+  } finally {
+    reconnecting.value = false
+  }
+}
+
+// 强制返回大厅
+function handleForceLeave() {
+  wsManager.disconnect()
+  roomStore.clearRoom()
+  router.push('/lobby')
+}
 
 onUnmounted(() => {
   gameStore.disconnect()
@@ -218,6 +277,30 @@ const resultDescription = computed(() => {
       </div>
       <template #footer>
         <el-button type="primary" size="large" class="full-width" @click="router.push('/lobby')">返回大厅</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 连接失败弹窗 -->
+    <el-dialog
+      v-model="showConnectionError"
+      title="连接失败"
+      width="400px"
+      :close-on-click-modal="false"
+      :show-close="false"
+    >
+      <div class="connection-error-dialog">
+        <div class="error-icon">⚠️</div>
+        <div class="error-message">
+          无法连接到对局服务，请检查网络连接后重试。
+        </div>
+      </div>
+      <template #footer>
+        <div class="connection-error-footer">
+          <el-button @click="handleForceLeave" :disabled="reconnecting">返回大厅</el-button>
+          <el-button type="primary" @click="handleReconnect" :loading="reconnecting">
+            重新连接
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -439,6 +522,28 @@ const resultDescription = computed(() => {
 }
 
 .full-width {
+  width: 100%;
+}
+
+.connection-error-dialog {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.error-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+}
+
+.error-message {
+  color: #6b7280;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.connection-error-footer {
+  display: flex;
+  justify-content: space-between;
   width: 100%;
 }
 </style>
