@@ -302,6 +302,7 @@ class GameWebSocketServer:
                 _log("info", "player_pre_assigned",
                      room_id=room_id,
                      user_id=uid,
+                     user_id_type=type(uid).__name__,
                      side=side)
 
             # Return per-player token mapping so Web service can pass them individually
@@ -311,6 +312,13 @@ class GameWebSocketServer:
                 str(uid): info["token"]
                 for uid, info in self._pre_assigned[room_id].items()
             }
+
+            # Log all pre_assigned keys with their types for debugging
+            pre_keys = list(self._pre_assigned.get(room_id, {}).keys())
+            _log("info", "pre_assigned_keys_for_room",
+                 room_id=room_id,
+                 keys=pre_keys,
+                 key_types=[type(k).__name__ for k in pre_keys])
 
             _log("info", "http_assign_game_success",
                  room_id=room_id,
@@ -356,9 +364,27 @@ class GameWebSocketServer:
             pre_info = None
             if user_id is not None:
                 room_pre = self._pre_assigned.get(room_id, {})
+                # Log full lookup context
+                _log("info", "pre_assigned_lookup_start",
+                     room_id=room_id,
+                     user_id=user_id,
+                     user_id_type=type(user_id).__name__,
+                     room_pre_keys=list(room_pre.keys()),
+                     room_pre_key_types=[type(k).__name__ for k in room_pre.keys()])
                 pre_info = room_pre.get(user_id) or room_pre.get(str(user_id))
+                _log("info", "pre_assigned_lookup_result",
+                     room_id=room_id,
+                     user_id=user_id,
+                     pre_info_found=pre_info is not None,
+                     pre_info_side=pre_info["side"] if pre_info else None)
             assigned_side = pre_info["side"] if pre_info else None
             assigned_username = (pre_info["username"] if pre_info else None) or username or ""
+
+            _log("info", "session_creating",
+                 room_id=room_id,
+                 user_id=user_id,
+                 assigned_side=assigned_side,
+                 assigned_username=assigned_username)
 
             session = PlayerSession(
                 user_id=user_id,
@@ -478,7 +504,21 @@ class GameWebSocketServer:
                 _log("info", "join_room_success",
                      room_id=room_id,
                      session_id=session.session_id,
-                     side=session.side)
+                     side=session.side,
+                     assigned_side=assigned_side)
+
+                # Detailed room state snapshot
+                _log("info", "room_state_snapshot_after_join",
+                     room_id=room_id,
+                     room_state=room.state.value,
+                     red_session_id=room.red_session.session_id if room.red_session else None,
+                     red_user_id=room.red_session.user_id if room.red_session else None,
+                     red_side=room.red_session.side if room.red_session else None,
+                     black_session_id=room.black_session.session_id if room.black_session else None,
+                     black_user_id=room.black_session.user_id if room.black_session else None,
+                     black_side=room.black_session.side if room.black_session else None,
+                     current_session_id=session.session_id,
+                     current_side=session.side)
 
                 # Send game start or wait message
                 room = await self.room_manager.get_room(room_id)
@@ -499,14 +539,21 @@ class GameWebSocketServer:
                         )
                         return
 
-                    await websocket.send_json(
-                        out_msg.game_start_message(
-                            room_id=room_id,
-                            your_side=session.side,
-                            red_time=room.red_session.remaining_time if room.red_session else 600,
-                            black_time=room.black_session.remaining_time if room.black_session else 600,
-                        )
+                    your_side = session.side
+                    game_start_msg = out_msg.game_start_message(
+                        room_id=room_id,
+                        your_side=your_side,
+                        red_time=room.red_session.remaining_time if room.red_session else 600,
+                        black_time=room.black_session.remaining_time if room.black_session else 600,
                     )
+                    _log("info", "sending_game_start_to_client",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         your_side=your_side,
+                         msg_type=game_start_msg.get("type"),
+                         msg_your_color=game_start_msg.get("your_color"),
+                         msg_room_id=game_start_msg.get("room_id"))
+                    await websocket.send_json(game_start_msg)
 
                     # Notify opponent
                     opponent = room.get_opponent_session(session.session_id)
@@ -523,14 +570,20 @@ class GameWebSocketServer:
                             elif room.black_session and room.black_session.session_id == opponent.session_id:
                                 opponent.side = "black"
 
+                        opponent_msg = out_msg.game_start_message(
+                            room_id=room_id,
+                            your_side=opponent.side,
+                            red_time=room.red_session.remaining_time if room.red_session else 600,
+                            black_time=room.black_session.remaining_time if room.black_session else 600,
+                        )
+                        _log("info", "sending_game_start_to_opponent",
+                             room_id=room_id,
+                             opponent_session=opponent.session_id,
+                             opponent_side=opponent.side,
+                             opponent_your_color=opponent_msg.get("your_color"))
                         await self.connection_manager.send_to(
                             opponent.session_id,
-                            out_msg.game_start_message(
-                                room_id=room_id,
-                                your_side=opponent.side,
-                                red_time=room.red_session.remaining_time if room.red_session else 600,
-                                black_time=room.black_session.remaining_time if room.black_session else 600,
-                            )
+                            opponent_msg
                         )
                         _log("info", "opponent_notified_game_start",
                              room_id=room_id,
@@ -552,9 +605,14 @@ class GameWebSocketServer:
                             out_msg.error_message(3002, "Internal error: side not assigned"))
                         return
 
-                    await websocket.send_json(
-                        out_msg.waiting_message(room_id=room_id, side=session.side)
-                    )
+                    waiting_msg = out_msg.waiting_message(room_id=room_id, side=session.side)
+                    _log("info", "sending_waiting_message",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         your_side=session.side,
+                         msg_your_color=waiting_msg.get("your_color"),
+                         msg_room_id=waiting_msg.get("room_id"))
+                    await websocket.send_json(waiting_msg)
 
                 # Message loop
                 message_count = 0
