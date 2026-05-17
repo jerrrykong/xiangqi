@@ -352,7 +352,11 @@ class GameWebSocketServer:
                  token_provided=bool(token))
 
             # Create session — look up pre-assigned side by user_id
-            pre_info = self._pre_assigned.get(room_id, {}).get(user_id)
+            # Try both int and str forms of user_id to handle type mismatches
+            pre_info = None
+            if user_id is not None:
+                room_pre = self._pre_assigned.get(room_id, {})
+                pre_info = room_pre.get(user_id) or room_pre.get(str(user_id))
             assigned_side = pre_info["side"] if pre_info else None
             assigned_username = (pre_info["username"] if pre_info else None) or username or ""
 
@@ -444,6 +448,33 @@ class GameWebSocketServer:
                     )
                     return
 
+                # Ensure session.side is set correctly after assign_side/join_room
+                # This is a safety net: if side is still None, derive it from the room
+                if session.side is None:
+                    _log("warning", "session_side_none_after_join",
+                         room_id=room_id,
+                         session_id=session.session_id,
+                         assigned_side=assigned_side)
+                    # Try to derive side from room
+                    room = await self.room_manager.get_room(room_id)
+                    if room:
+                        if room.red_session and room.red_session.session_id == session.session_id:
+                            session.side = "red"
+                        elif room.black_session and room.black_session.session_id == session.session_id:
+                            session.side = "black"
+                        else:
+                            # Fallback: assign based on which side is empty
+                            if room.red_session is None:
+                                session.side = "red"
+                            elif room.black_session is None:
+                                session.side = "black"
+                            else:
+                                session.side = "red"  # last resort
+                        _log("warning", "session_side_recovered",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             recovered_side=session.side)
+
                 _log("info", "join_room_success",
                      room_id=room_id,
                      session_id=session.session_id,
@@ -457,10 +488,21 @@ class GameWebSocketServer:
                          session_id=session.session_id,
                          side=session.side)
 
+                    # Ensure session.side is valid before sending
+                    if not session.side:
+                        _log("error", "session_side_invalid_before_game_start",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             side=session.side)
+                        await websocket.send_json(
+                            out_msg.error_message(3002, "Internal error: side not assigned")
+                        )
+                        return
+
                     await websocket.send_json(
                         out_msg.game_start_message(
                             room_id=room_id,
-                            your_side=session.side or "red",
+                            your_side=session.side,
                             red_time=room.red_session.remaining_time if room.red_session else 600,
                             black_time=room.black_session.remaining_time if room.black_session else 600,
                         )
@@ -469,25 +511,49 @@ class GameWebSocketServer:
                     # Notify opponent
                     opponent = room.get_opponent_session(session.session_id)
                     if opponent and opponent.is_connected():
+                        # Ensure opponent.side is valid
+                        if not opponent.side:
+                            _log("error", "opponent_side_invalid_before_notify",
+                                 room_id=room_id,
+                                 opponent_session=opponent.session_id,
+                                 side=opponent.side)
+                            # Try to recover
+                            if room.red_session and room.red_session.session_id == opponent.session_id:
+                                opponent.side = "red"
+                            elif room.black_session and room.black_session.session_id == opponent.session_id:
+                                opponent.side = "black"
+
                         await self.connection_manager.send_to(
                             opponent.session_id,
                             out_msg.game_start_message(
                                 room_id=room_id,
-                                your_side=opponent.side or "black",
+                                your_side=opponent.side,
                                 red_time=room.red_session.remaining_time if room.red_session else 600,
                                 black_time=room.black_session.remaining_time if room.black_session else 600,
                             )
                         )
                         _log("info", "opponent_notified_game_start",
                              room_id=room_id,
-                             opponent_session=opponent.session_id)
+                             opponent_session=opponent.session_id,
+                             opponent_side=opponent.side)
                 else:
                     _log("debug", "waiting_for_opponent",
                          room_id=room_id,
                          session_id=session.session_id,
                          room_state=room.state.value)
+
+                    # Ensure session.side is valid before sending waiting message
+                    if not session.side:
+                        _log("error", "session_side_invalid_before_waiting",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             side=session.side)
+                        await websocket.send_json(
+                            out_msg.error_message(3002, "Internal error: side not assigned"))
+                        return
+
                     await websocket.send_json(
-                        out_msg.waiting_message(room_id=room_id, side=session.side or "red")
+                        out_msg.waiting_message(room_id=room_id, side=session.side)
                     )
 
                 # Message loop
