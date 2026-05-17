@@ -70,7 +70,7 @@ class WebSocketManager {
     this.url = fullUrl
     this.token = token
     this.reconnectAttempts = 0
-    this.createConnectionRaw(fullUrl)
+    this._createWs(fullUrl)
   }
 
   private createConnection() {
@@ -90,20 +90,9 @@ class WebSocketManager {
     }
   }
 
-  private createConnectionRaw(fullUrl: string) {
-    if (this.ws) {
-      this.ws.close()
-    }
-    this.connectionState.value = 'connecting'
-    try {
-      this._createWs(fullUrl)
-    } catch (e) {
-      console.error('Failed to create WebSocket:', e)
-      this.connectionState.value = 'error'
-    }
-  }
-
   private _createWs(wsUrl: string) {
+    try {
+      this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
         this.isConnected.value = true

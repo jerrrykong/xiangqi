@@ -5,6 +5,7 @@ import { getInitialBoard, Color } from '@/types/chess'
 import type { ServerMessage, StateSyncMessage, GameStartMessage } from '@/types/websocket'
 import wsManager from '@/api/websocket'
 import { MsgType } from '@/types/websocket'
+import { useAuthStore } from './auth'
 
 export const useGameStore = defineStore('game', () => {
   // 棋盘状态
