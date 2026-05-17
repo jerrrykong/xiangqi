@@ -151,7 +151,7 @@ func (h *RoomHandler) GetMyRoom(c *gin.Context) {
 
 	// If game is in progress, get session info from Redis and determine yourSide
 	if room.Status == model.RoomStatusPlaying {
-		sessionInfo, err := h.roomSvc.GetGameSession(c.Request.Context(), room.ID)
+		sessionInfo, err := h.roomSvc.GetGameSessionForUser(c.Request.Context(), room.ID, userID)
 		if err != nil {
 			log.Warn("handler_get_my_room_session_error",
 				"user_id", userID,
@@ -162,6 +162,23 @@ func (h *RoomHandler) GetMyRoom(c *gin.Context) {
 		if sessionInfo != nil {
 			resp["game_ws_url"] = sessionInfo.WsURL
 			resp["game_token"] = sessionInfo.SessionToken
+		} else {
+			// Redis 数据丢失，重置房间状态
+			log.Warn("handler_get_my_room_session_missing",
+				"user_id", userID,
+				"room_id", room.ID,
+				"action", "reset_status_to_waiting",
+			)
+			if resetErr := h.roomSvc.ResetRoomStatus(c.Request.Context(), room.ID); resetErr != nil {
+				log.Error("handler_get_my_room_reset_error",
+					"user_id", userID,
+					"room_id", room.ID,
+					"error", resetErr.Error(),
+				)
+			}
+
+			// 更新返回的状态
+			resp["status"] = model.RoomStatusWaiting
 		}
 
 		// Determine which side the user is on

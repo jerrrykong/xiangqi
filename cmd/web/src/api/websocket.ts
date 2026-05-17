@@ -57,12 +57,20 @@ class WebSocketManager {
     this.onDisconnect = callbacks.onDisconnect
   }
 
-  // 连接
+  // 连接（自动拼接 token 参数）
   public connect(url: string, token: string) {
     this.url = url
     this.token = token
     this.reconnectAttempts = 0
     this.createConnection()
+  }
+
+  // 连接（使用完整 URL，不再拼接 token）
+  public connectRaw(fullUrl: string, token: string) {
+    this.url = fullUrl
+    this.token = token
+    this.reconnectAttempts = 0
+    this.createConnectionRaw(fullUrl)
   }
 
   private createConnection() {
@@ -75,7 +83,27 @@ class WebSocketManager {
     try {
       // WebSocket URL 需要添加 token 作为 query 参数
       const wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`
-      this.ws = new WebSocket(wsUrl)
+      this._createWs(wsUrl)
+    } catch (e) {
+      console.error('Failed to create WebSocket:', e)
+      this.connectionState.value = 'error'
+    }
+  }
+
+  private createConnectionRaw(fullUrl: string) {
+    if (this.ws) {
+      this.ws.close()
+    }
+    this.connectionState.value = 'connecting'
+    try {
+      this._createWs(fullUrl)
+    } catch (e) {
+      console.error('Failed to create WebSocket:', e)
+      this.connectionState.value = 'error'
+    }
+  }
+
+  private _createWs(wsUrl: string) {
 
       this.ws.onopen = () => {
         this.isConnected.value = true

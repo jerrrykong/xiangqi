@@ -42,18 +42,20 @@ type PlayerInfo struct {
 
 // AssignResponse represents a game assignment response
 type AssignResponse struct {
-	RoomID       string `json:"room_id"`
-	WsURL        string `json:"ws_url"`
-	GameID       string `json:"game_id"`
-	SessionToken string `json:"session_token"`
+	RoomID       string            `json:"room_id"`
+	WsURL        string            `json:"ws_url"`
+	GameID       string            `json:"game_id"`
+	SessionToken string            `json:"session_token"` // kept for backward compat
+	PlayerTokens map[string]string `json:"player_tokens"` // user_id(str) -> token
 }
 
 // SessionInfo represents session information stored in Redis
 type SessionInfo struct {
-	RoomID       string `json:"room_id"`
-	WsURL        string `json:"ws_url"`
-	SessionToken string `json:"session_token"`
-	GameID       string `json:"game_id"`
+	RoomID       string            `json:"room_id"`
+	WsURL        string            `json:"ws_url"`
+	SessionToken string            `json:"session_token"` // kept for compat
+	GameID       string            `json:"game_id"`
+	PlayerTokens map[string]string `json:"player_tokens,omitempty"` // user_id(str) -> token
 }
 
 // NewGameProxy creates a new GameProxy
@@ -175,6 +177,7 @@ func (p *GameProxy) AssignGame(ctx context.Context, req *AssignRequest) (*Assign
 			WsURL:        assignResp.WsURL,
 			SessionToken: assignResp.SessionToken,
 			GameID:       assignResp.GameID,
+			PlayerTokens: assignResp.PlayerTokens,
 		}
 		if err := p.StoreSession(ctx, req.RoomID, &sessionInfo); err != nil {
 			log.Error("game_proxy_assign_store_session_error",
@@ -204,7 +207,8 @@ func (p *GameProxy) StoreSession(ctx context.Context, roomID string, info *Sessi
 	return p.redis.Set(ctx, key, data, 24*time.Hour).Err()
 }
 
-// GetSession retrieves session information from Redis
+// GetSession retrieves session information from Redis.
+// If userID > 0, the returned SessionToken is the per-player token for that user.
 func (p *GameProxy) GetSession(ctx context.Context, roomID string) (*SessionInfo, error) {
 	if p.redis == nil {
 		return nil, fmt.Errorf("redis not available")
@@ -225,6 +229,22 @@ func (p *GameProxy) GetSession(ctx context.Context, roomID string) (*SessionInfo
 	}
 
 	return &info, nil
+}
+
+// GetSessionForUser retrieves session info and resolves the per-player token.
+func (p *GameProxy) GetSessionForUser(ctx context.Context, roomID string, userID int64) (*SessionInfo, error) {
+	info, err := p.GetSession(ctx, roomID)
+	if err != nil || info == nil {
+		return info, err
+	}
+	// Override SessionToken with per-player token if available
+	if info.PlayerTokens != nil {
+		key := fmt.Sprintf("%d", userID)
+		if tok, ok := info.PlayerTokens[key]; ok {
+			info.SessionToken = tok
+		}
+	}
+	return info, nil
 }
 
 // HandleGameResult handles game result callback from Game service

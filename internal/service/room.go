@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -419,7 +420,18 @@ func (s *RoomService) PlayerReady(ctx context.Context, roomID string, userID int
 
 			resp.GameStarted = true
 			resp.GameWsURL = assignResp.WsURL
-			resp.GameToken = assignResp.SessionToken
+
+			// Give each player their own token
+			if assignResp.PlayerTokens != nil {
+				key := fmt.Sprintf("%d", userID)
+				if tok, ok := assignResp.PlayerTokens[key]; ok {
+					resp.GameToken = tok
+				} else {
+					resp.GameToken = assignResp.SessionToken
+				}
+			} else {
+				resp.GameToken = assignResp.SessionToken
+			}
 		} else if err != nil {
 			log.Error("room_service_game_assign_error",
 				"room_id", roomID,
@@ -621,6 +633,50 @@ func (s *RoomService) GetGameSession(ctx context.Context, roomID string) (*Sessi
 	return s.gameProxy.GetSession(ctx, roomID)
 }
 
+// GetGameSessionForUser retrieves game session info with per-player token resolved
+func (s *RoomService) GetGameSessionForUser(ctx context.Context, roomID string, userID int64) (*SessionInfo, error) {
+	if s.gameProxy == nil {
+		return nil, errors.New("game proxy not available")
+	}
+	return s.gameProxy.GetSessionForUser(ctx, roomID, userID)
+}
+
+// ResetRoomStatus resets a room's status to waiting (used when game session is lost)
+func (s *RoomService) ResetRoomStatus(ctx context.Context, roomID string) error {
+	log.Debug("room_service_reset_room_status",
+		"room_id", roomID,
+	)
+
+	room, err := s.roomRepo.GetByID(ctx, roomID)
+	if err != nil {
+		log.Error("room_service_reset_room_status_error",
+			"room_id", roomID,
+			"step", "get_room",
+			"error", err.Error(),
+		)
+		return err
+	}
+
+	room.Status = model.RoomStatusWaiting
+	room.RedReady = false
+	room.BlackReady = false
+
+	if err := s.roomRepo.Update(ctx, room); err != nil {
+		log.Error("room_service_reset_room_status_error",
+			"room_id", roomID,
+			"step", "update_room",
+			"error", err.Error(),
+		)
+		return err
+	}
+
+	log.Info("room_service_reset_room_status_success",
+		"room_id", roomID,
+	)
+
+	return nil
+}
+
 // GetRoomDetail returns full room details including player information
 // Returns 404 if the room doesn't exist OR the user is not in the room
 func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID int64) (*model.RoomDetailResponse, error) {
@@ -705,7 +761,7 @@ func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID i
 
 	// If game is in progress, get session info from Redis
 	if room.Status == model.RoomStatusPlaying {
-		sessionInfo, err := s.GetGameSession(ctx, roomID)
+		sessionInfo, err := s.GetGameSessionForUser(ctx, roomID, userID)
 		if err != nil {
 			log.Warn("room_service_get_room_detail_session_error",
 				"room_id", roomID,
@@ -715,6 +771,26 @@ func (s *RoomService) GetRoomDetail(ctx context.Context, roomID string, userID i
 		if sessionInfo != nil {
 			detail.GameWsURL = sessionInfo.WsURL
 			detail.GameToken = sessionInfo.SessionToken
+		} else {
+			// Redis 数据丢失，重置房间状态
+			log.Warn("room_service_get_room_detail_session_missing",
+				"room_id", roomID,
+				"action", "reset_status_to_waiting",
+			)
+			room.Status = model.RoomStatusWaiting
+			room.RedReady = false
+			room.BlackReady = false
+			if updateErr := s.roomRepo.Update(ctx, room); updateErr != nil {
+				log.Error("room_service_get_room_detail_reset_error",
+					"room_id", roomID,
+					"error", updateErr.Error(),
+				)
+			}
+
+			// 更新返回的状态
+			detail.Status = model.RoomStatusWaiting
+			detail.RedReady = false
+			detail.BlackReady = false
 		}
 	}
 

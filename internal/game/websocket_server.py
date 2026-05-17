@@ -142,6 +142,8 @@ class GameWebSocketServer:
         self.room_manager = RoomManager()
         self.message_handler = MessageHandler(self.room_manager)
         self.connection_manager = ConnectionManager()
+        # room_id -> { user_id -> {"side": str, "token": str, "username": str} }
+        self._pre_assigned: Dict[str, Dict[int, dict]] = {}
 
         _log("info", "game_server_init",
              server_id=self.server_id,
@@ -284,32 +286,45 @@ class GameWebSocketServer:
             # Create room in room manager
             room = await self.room_manager.create_room(room_id=room_id, room_type=game_type)
 
-            # Assign sides to players
+            # Assign sides to players — each gets their own token
+            import secrets
+            self._pre_assigned[room_id] = {}
             for player in players:
-                session = PlayerSession(
-                    user_id=player.get("user_id"),
-                    username=player.get("username", ""),
-                    token=session_token,
-                )
+                player_token = secrets.token_urlsafe(32)
+                uid = player.get("user_id")
                 side = player.get("side", "red")
-                success, _ = await self.room_manager.assign_side(room_id, session, side)
-                if success:
-                    _log("info", "player_assigned_to_room",
-                         room_id=room_id,
-                         user_id=player.get("user_id"),
-                         side=side)
+                uname = player.get("username", "")
+                self._pre_assigned[room_id][uid] = {
+                    "side": side,
+                    "token": player_token,
+                    "username": uname,
+                }
+                _log("info", "player_pre_assigned",
+                     room_id=room_id,
+                     user_id=uid,
+                     side=side)
+
+            # Return per-player token mapping so Web service can pass them individually
+            # For now we still return a single token (Web service uses same token for both)
+            # but also expose per-player tokens in the response
+            player_tokens = {
+                str(uid): info["token"]
+                for uid, info in self._pre_assigned[room_id].items()
+            }
 
             _log("info", "http_assign_game_success",
                  room_id=room_id,
                  game_id=room_id,
                  ws_url=ws_url,
-                 session_token=session_token[:8] + "...")
+                 player_count=len(players))
 
+            # Use a shared placeholder token — real validation uses user_id
             return {
                 "room_id": room_id,
                 "ws_url": ws_url,
                 "game_id": room_id,
-                "session_token": session_token,
+                "session_token": "multi",  # placeholder; real tokens in player_tokens
+                "player_tokens": player_tokens,
             }
 
         @self.app.websocket("/game/{room_id}")
@@ -336,11 +351,16 @@ class GameWebSocketServer:
                  username=username,
                  token_provided=bool(token))
 
-            # Create session
+            # Create session — look up pre-assigned side by user_id
+            pre_info = self._pre_assigned.get(room_id, {}).get(user_id)
+            assigned_side = pre_info["side"] if pre_info else None
+            assigned_username = (pre_info["username"] if pre_info else None) or username or ""
+
             session = PlayerSession(
                 user_id=user_id,
-                username=username,
+                username=assigned_username,
                 token=token or "",
+                side=assigned_side,
             )
 
             await websocket.accept()
@@ -394,10 +414,11 @@ class GameWebSocketServer:
                              response=response)
                         return
 
-                # Join room
+                # Join room — use pre-assigned side if available, else fallback
                 _log("debug", "joining_room",
                      room_id=room_id,
-                     session_id=session.session_id)
+                     session_id=session.session_id,
+                     pre_assigned_side=assigned_side)
 
                 room = await self.room_manager.get_room(room_id)
                 if room is None:
@@ -406,7 +427,13 @@ class GameWebSocketServer:
                          session_id=session.session_id)
                     room = await self.room_manager.create_room(room_id=room_id)
 
-                success, msg = await self.room_manager.join_room(room_id, session)
+                if assigned_side:
+                    # Pre-assigned: directly claim the specified side
+                    success, msg = await self.room_manager.assign_side(room_id, session, assigned_side)
+                else:
+                    # Fallback: auto-assign (first come first served)
+                    success, msg = await self.room_manager.join_room(room_id, session)
+
                 if not success:
                     _log("warning", "join_room_failed",
                          room_id=room_id,
@@ -459,10 +486,9 @@ class GameWebSocketServer:
                          room_id=room_id,
                          session_id=session.session_id,
                          room_state=room.state.value)
-                    await websocket.send_json({
-                        "type": "waiting",
-                        "data": {"room_id": room_id, "side": session.side},
-                    })
+                    await websocket.send_json(
+                        out_msg.waiting_message(room_id=room_id, side=session.side or "red")
+                    )
 
                 # Message loop
                 message_count = 0

@@ -485,6 +485,17 @@ class RoomManager:
 
             self._session_to_room[session.session_id] = room_id
 
+            # If both players are now in, start game
+            if room.red_session and room.black_session and room.state == RoomState.WAITING:
+                room.state = RoomState.PLAYING
+                room.started_at = time.time()
+                room.game = ChessGame()
+                room.game.start()
+                _log("info", "room_assign_side_game_starting",
+                     room_id=room_id,
+                     red_user=room.red_session.user_id,
+                     black_user=room.black_session.user_id)
+
             _log("info", "room_assign_side_success",
                  room_id=room_id,
                  session_id=session.session_id,
