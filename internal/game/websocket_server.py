@@ -714,3 +714,7 @@ def create_server(
 ) -> GameWebSocketServer:
     """Create and configure a game WebSocket server."""
     return GameWebSocketServer(host=host, port=port, game_callback_url=game_callback_url)
+
+
+# Expose app for uvicorn CLI
+app = create_server().app
