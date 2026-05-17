@@ -23,6 +23,9 @@ class WebSocketManager {
   private token = ''
   private useRawUrl = false  // true 当使用 connectRaw 时，重连不追加 token
 
+  // 标记是否应该重连（某些错误码不应该重连）
+  private shouldReconnect = true
+
   // 状态
   public isConnected = ref(false)
   public connectionState = shallowRef<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected')
@@ -63,6 +66,7 @@ class WebSocketManager {
     this.url = url
     this.token = token
     this.useRawUrl = false
+    this.shouldReconnect = true  // 重置重连状态
     this.reconnectAttempts = 0
     this.createConnection()
   }
@@ -72,6 +76,7 @@ class WebSocketManager {
     this.url = fullUrl
     this.token = token
     this.useRawUrl = true
+    this.shouldReconnect = true  // 重置重连状态
     this.reconnectAttempts = 0
     this._createWs(fullUrl)
   }
@@ -133,6 +138,9 @@ class WebSocketManager {
   }
 
   private handleMessage(message: ServerMessage) {
+    // Debug log all incoming messages
+    console.debug('[WS] Incoming message:', JSON.stringify(message))
+
     switch (message.type) {
       case MsgType.GameStart:
         this.onGameStart?.(message as GameStartMessage)
@@ -153,7 +161,25 @@ class WebSocketManager {
         this.onDrawNotify?.(message as DrawNotifyMessage)
         break
       case MsgType.Error:
-        this.onError?.(message as ErrorMessage)
+        // Defensive: ensure message has required fields
+        const errorMsg = message as ErrorMessage
+        if (errorMsg.code === undefined || errorMsg.message === undefined) {
+          console.error('[WS] Received malformed error message:', errorMsg)
+          return
+        }
+        this.onError?.(errorMsg)
+
+        // 某些错误码不应该触发重连
+        // 3001: Room is full (房间已满，不应该重连)
+        // 3002: Room not found (房间不存在，不应该重连)
+        // 4003: Room/game related errors (不应该重连)
+        const nonRetryableCodes = [3001, 3002, 4003]
+        if (nonRetryableCodes.includes(errorMsg.code)) {
+          console.log(`[WS] Non-retryable error code ${errorMsg.code}, stopping reconnect`)
+          this.shouldReconnect = false
+          // 主动断开连接，防止 onclose 触发重连
+          this.disconnect()
+        }
         break
     }
   }
@@ -176,15 +202,19 @@ class WebSocketManager {
   }
 
   private attemptReconnect() {
+    if (!this.shouldReconnect) {
+      console.log('[WS] Reconnect disabled, skipping')
+      return
+    }
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('Max reconnect attempts reached')
+      console.log('[WS] Max reconnect attempts reached')
       return
     }
 
     this.reconnectAttempts++
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1)
 
-    console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`)
+    console.log(`[WS] Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`)
 
     setTimeout(() => {
       if (!this.isConnected.value) {
@@ -209,6 +239,12 @@ class WebSocketManager {
     }
     this.isConnected.value = false
     this.connectionState.value = 'disconnected'
+  }
+
+  // 重置重连状态（用于外部主动触发重连）
+  public resetReconnectState() {
+    this.shouldReconnect = true
+    this.reconnectAttempts = 0
   }
 }
 
