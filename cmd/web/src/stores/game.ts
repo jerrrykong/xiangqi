@@ -65,11 +65,15 @@ export const useGameStore = defineStore('game', () => {
     gameToken.value = token
     setWebSocketCallbacks()
 
-    // 附加 user_id 到 WebSocket URL，供服务端识别玩家身份
+    // wsUrl 可能已包含 ?token=...，追加 user_id 时需判断分隔符
     const authStore = useAuthStore()
     const userId = authStore.user?.user_id
-    const urlWithUser = userId ? `${wsUrl}?token=${encodeURIComponent(token)}&user_id=${userId}` : undefined
-    wsManager.connectRaw(urlWithUser || wsUrl, token)
+    let finalUrl = wsUrl
+    if (userId) {
+      const sep = wsUrl.includes('?') ? '&' : '?'
+      finalUrl = `${wsUrl}${sep}user_id=${userId}`
+    }
+    wsManager.connectRaw(finalUrl, token)
   }
 
   // 断开连接

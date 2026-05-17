@@ -21,6 +21,7 @@ class WebSocketManager {
   private heartbeatInterval: number | null = null
   private url = ''
   private token = ''
+  private useRawUrl = false  // true 当使用 connectRaw 时，重连不追加 token
 
   // 状态
   public isConnected = ref(false)
@@ -61,6 +62,7 @@ class WebSocketManager {
   public connect(url: string, token: string) {
     this.url = url
     this.token = token
+    this.useRawUrl = false
     this.reconnectAttempts = 0
     this.createConnection()
   }
@@ -69,6 +71,7 @@ class WebSocketManager {
   public connectRaw(fullUrl: string, token: string) {
     this.url = fullUrl
     this.token = token
+    this.useRawUrl = true
     this.reconnectAttempts = 0
     this._createWs(fullUrl)
   }
@@ -81,8 +84,9 @@ class WebSocketManager {
     this.connectionState.value = 'connecting'
 
     try {
-      // WebSocket URL 需要添加 token 作为 query 参数
-      const wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`
+      const wsUrl = this.useRawUrl
+        ? this.url
+        : `${this.url}?token=${encodeURIComponent(this.token)}`
       this._createWs(wsUrl)
     } catch (e) {
       console.error('Failed to create WebSocket:', e)
