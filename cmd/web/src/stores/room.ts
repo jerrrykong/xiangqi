@@ -83,8 +83,9 @@ export const useRoomStore = defineStore('room', () => {
     isLoading.value = true
     try {
       const response = await roomApi.getRoomList(page, pageSize)
-      roomList.value = response.rooms
-      totalRooms.value = response.total
+      // 确保 rooms 是数组，避免模板渲染错误
+      roomList.value = response.rooms || []
+      totalRooms.value = response.total || 0
     } finally {
       isLoading.value = false
     }

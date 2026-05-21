@@ -143,6 +143,11 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理错误
   function handleError(data: { code: number; message: string }) {
+    // Defensive check - if data is undefined or malformed, log and return
+    if (!data || data.code === undefined || data.message === undefined) {
+      console.error('Game error (malformed):', data)
+      return
+    }
     console.error('Game error:', data.code, data.message)
   }
 

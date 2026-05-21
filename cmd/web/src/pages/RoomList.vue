@@ -3,21 +3,44 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useRoomStore } from '@/stores/room'
-import type { RoomListItem } from '@/types/api'
+import { getRoom } from '@/api/room'
+import type { RoomListItem, RoomStatus } from '@/types/api'
 
 const router = useRouter()
 const roomStore = useRoomStore()
 
 const currentPage = ref(1)
 const pageSize = ref(20)
+const hasError = ref(false)
+
+// 房间详细信息（用于卡片展示）
+interface RoomCardInfo {
+  room_id: string
+  status: RoomStatus
+  red_user?: { username: string; rating?: number }
+  black_user?: { username: string; rating?: number }
+  created_at: string
+}
+const roomDetails = ref<Map<string, RoomCardInfo>>(new Map())
 
 // 定时刷新
 let refreshInterval: number | null = null
 
-onMounted(() => {
-  fetchRooms()
-  // 每 5 秒刷新一次
-  refreshInterval = window.setInterval(fetchRooms, 5000)
+// 确保数据已加载
+async function ensureDataLoaded() {
+  if (roomStore.roomList.length > 0 || roomStore.isLoading) {
+    return
+  }
+  await fetchRooms()
+}
+
+onMounted(async () => {
+  console.log('RoomList mounted, fetching rooms...')
+  await ensureDataLoaded()
+  refreshInterval = window.setInterval(async () => {
+    console.log('Auto-refreshing rooms...')
+    await fetchRooms()
+  }, 5000)
 })
 
 onUnmounted(() => {
@@ -26,11 +49,38 @@ onUnmounted(() => {
   }
 })
 
-async function fetchRooms() {
+async function fetchRoomDetails(roomId: string) {
   try {
+    const detail = await getRoom(roomId)
+    roomDetails.value.set(roomId, {
+      room_id: detail.room_id,
+      status: detail.status,
+      red_user: detail.red_user ? { username: detail.red_user.username, rating: detail.red_user.rating } : undefined,
+      black_user: detail.black_user ? { username: detail.black_user.username, rating: detail.black_user.rating } : undefined,
+      created_at: '',
+    })
+  } catch (e) {
+    console.error('Failed to fetch room detail:', roomId, e)
+  }
+}
+
+async function fetchRooms() {
+  hasError.value = false
+  try {
+    console.log('Fetching rooms, page:', currentPage.value, 'pageSize:', pageSize.value)
     await roomStore.fetchRoomList(currentPage.value, pageSize.value)
-  } catch (error) {
+    console.log('Rooms fetched successfully, count:', roomStore.roomList.length)
+
+    // 获取每个房间的详细信息
+    roomDetails.value.clear()
+    for (const room of roomStore.roomList) {
+      await fetchRoomDetails(room.room_id)
+    }
+  } catch (error: any) {
     console.error('Failed to fetch rooms:', error)
+    hasError.value = true
+    const message = error.response?.data?.message || error.message || '获取房间列表失败'
+    ElMessage.error(message)
   }
 }
 
@@ -45,12 +95,48 @@ async function handleJoinRoom(room: RoomListItem) {
   }
 }
 
+async function handleCreateRoom() {
+  try {
+    const response = await roomStore.createRoom()
+    ElMessage.success('房间创建成功')
+    router.push(`/room/${response.room_id}`)
+  } catch (error: any) {
+    const message = error.response?.data?.message || '创建房间失败'
+    ElMessage.error(message)
+  }
+}
+
 function handlePageChange(page: number) {
   currentPage.value = page
   fetchRooms()
 }
 
+function getStatusTagType(status: RoomStatus): string {
+  switch (status) {
+    case 'waiting': return 'success'
+    case 'ready': return 'warning'
+    case 'playing': return 'danger'
+    case 'finished': return 'info'
+    default: return 'info'
+  }
+}
+
+function getStatusText(status: RoomStatus): string {
+  switch (status) {
+    case 'waiting': return '等待中'
+    case 'ready': return '已就绪'
+    case 'playing': return '对战中'
+    case 'finished': return '已结束'
+    default: return status
+  }
+}
+
+function getRoomDetail(roomId: string): RoomCardInfo | undefined {
+  return roomDetails.value.get(roomId)
+}
+
 function formatTime(dateStr: string): string {
+  if (!dateStr) return ''
   const date = new Date(dateStr)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
@@ -80,51 +166,105 @@ function formatTime(dateStr: string): string {
 
     <main class="room-main">
       <div class="main-content">
-        <div class="room-card card">
-          <!-- 房间列表 -->
-          <div class="room-list">
-            <div
-              v-for="room in roomStore.roomList"
-              :key="room.room_id"
-              class="room-item"
-              @click="handleJoinRoom(room)"
-            >
-              <div class="room-item-left">
-                <div class="room-icon">
-                  <span>🎮</span>
-                </div>
-                <div class="room-info">
-                  <div class="room-name">房间 {{ room.room_id.slice(0, 8) }}</div>
-                  <div class="room-meta">
-                    房主: {{ room.username }} · {{ formatTime(room.created_at) }}
-                  </div>
-                </div>
-              </div>
-              <div class="room-item-right">
-                <el-tag type="success" size="large">等待加入</el-tag>
-                <el-button type="primary" size="default">加入</el-button>
+        <!-- 创建房间按钮 -->
+        <div class="action-bar">
+          <el-button type="primary" size="large" @click="handleCreateRoom">
+            <span class="btn-icon">🎮</span> 创建房间
+          </el-button>
+        </div>
+
+        <!-- 加载中 -->
+        <div v-if="roomStore.isLoading && roomStore.roomList.length === 0" class="center-message">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">加载中...</div>
+        </div>
+
+        <!-- 加载失败 -->
+        <div v-else-if="hasError" class="center-message">
+          <div class="empty-icon">❌</div>
+          <div class="empty-title">加载失败</div>
+          <div class="empty-text">获取房间列表失败，请重试</div>
+          <el-button type="primary" class="retry-button" @click="fetchRooms">
+            重新加载
+          </el-button>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-else-if="roomStore.roomList.length === 0" class="center-message">
+          <div class="empty-icon">🎯</div>
+          <div class="empty-title">没有任何游戏房间</div>
+          <div class="empty-text">快来创建第一个房间吧！</div>
+          <el-button type="primary" class="retry-button" @click="handleCreateRoom">
+            创建房间
+          </el-button>
+        </div>
+
+        <!-- 房间列表 -->
+        <div v-else class="room-grid">
+          <div
+            v-for="room in roomStore.roomList"
+            :key="room.room_id"
+            class="room-card"
+            @click="handleJoinRoom(room)"
+          >
+            <!-- 房间状态标签 -->
+            <div class="card-header">
+              <el-tag :type="getStatusTagType(getRoomDetail(room.room_id)?.status || 'waiting')" size="large">
+                {{ getStatusText(getRoomDetail(room.room_id)?.status || 'waiting') }}
+              </el-tag>
+              <span class="room-id">房间号: {{ room.room_id.slice(0, 8) }}</span>
+            </div>
+
+            <!-- 红方信息 -->
+            <div class="player-row red-side">
+              <div class="player-label">红方</div>
+              <div class="player-info">
+                <span class="player-name">
+                  {{ getRoomDetail(room.room_id)?.red_user?.username || '等待加入...' }}
+                </span>
+                <span v-if="getRoomDetail(room.room_id)?.red_user?.rating" class="player-rating">
+                  {{ getRoomDetail(room.room_id)?.red_user?.rating }}分
+                </span>
               </div>
             </div>
 
-            <div v-if="roomStore.roomList.length === 0 && !roomStore.isLoading" class="empty-state">
-              <div class="empty-icon">🎯</div>
-              <div class="empty-text">暂无等待中的房间</div>
-              <el-button type="primary" class="empty-button" @click="router.push('/lobby')">
-                创建房间
+            <!-- VS 分隔线 -->
+            <div class="vs-divider">
+              <span class="vs-text">VS</span>
+            </div>
+
+            <!-- 黑方信息 -->
+            <div class="player-row black-side">
+              <div class="player-label">黑方</div>
+              <div class="player-info">
+                <span class="player-name">
+                  {{ getRoomDetail(room.room_id)?.black_user?.username || '等待加入...' }}
+                </span>
+                <span v-if="getRoomDetail(room.room_id)?.black_user?.rating" class="player-rating">
+                  {{ getRoomDetail(room.room_id)?.black_user?.rating }}分
+                </span>
+              </div>
+            </div>
+
+            <!-- 房间底部信息 -->
+            <div class="card-footer">
+              <span class="room-time">{{ formatTime(room.created_at) }}</span>
+              <el-button type="primary" size="small" @click.stop="handleJoinRoom(room)">
+                加入
               </el-button>
             </div>
           </div>
+        </div>
 
-          <!-- 分页 -->
-          <div v-if="roomStore.totalRooms > pageSize" class="pagination-wrapper">
-            <el-pagination
-              v-model:current-page="currentPage"
-              :page-size="pageSize"
-              :total="roomStore.totalRooms"
-              layout="prev, pager, next"
-              @current-change="handlePageChange"
-            />
-          </div>
+        <!-- 分页 -->
+        <div v-if="roomStore.totalRooms > pageSize" class="pagination-wrapper">
+          <el-pagination
+            v-model:current-page="currentPage"
+            :page-size="pageSize"
+            :total="roomStore.totalRooms"
+            layout="prev, pager, next"
+            @current-change="handlePageChange"
+          />
         </div>
       </div>
     </main>
@@ -173,97 +313,193 @@ function formatTime(dateStr: string): string {
   width: 100%;
 }
 
-.card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(139, 90, 43, 0.15);
-  padding: 24px;
+/* 操作栏 */
+.action-bar {
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: flex-start;
 }
 
-.room-list {
+.action-bar .btn-icon {
+  margin-right: 8px;
+}
+
+/* 居中消息 */
+.center-message {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.room-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: white;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.room-item:hover {
-  border-color: var(--color-wood-400);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.room-item-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.room-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--color-wood-100);
-  display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  min-height: 400px;
+  text-align: center;
 }
 
-.room-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--color-wood-200);
+  border-top-color: var(--color-wood-500);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
 }
 
-.room-name {
-  font-weight: 500;
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  color: var(--color-wood-500);
   font-size: 1rem;
 }
 
-.room-meta {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
-
-.room-item-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 48px 0;
-}
-
 .empty-icon {
-  font-size: 3.75rem;
+  font-size: 4rem;
   margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #374151;
+  margin-bottom: 8px;
 }
 
 .empty-text {
   color: #6b7280;
-  font-size: 1.125rem;
-  margin-bottom: 16px;
+  font-size: 1rem;
+  margin-bottom: 24px;
 }
 
-.empty-button {
-  margin-top: 16px;
+.retry-button {
+  margin-top: 8px;
 }
 
+/* 房间网格 */
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+/* 房间卡片 */
+.room-card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(139, 90, 43, 0.15);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.room-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(139, 90, 43, 0.25);
+}
+
+.card-header {
+  background: var(--color-wood-600);
+  color: white;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.room-id {
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+/* 玩家行 */
+.player-row {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  gap: 12px;
+}
+
+.red-side {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, transparent 100%);
+}
+
+.black-side {
+  background: linear-gradient(90deg, rgba(31, 41, 55, 0.1) 0%, transparent 100%);
+}
+
+.player-label {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.875rem;
+}
+
+.red-side .player-label {
+  background: #ef4444;
+  color: white;
+}
+
+.black-side .player-label {
+  background: #1f2937;
+  color: white;
+}
+
+.player-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.player-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+.player-rating {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+/* VS 分隔线 */
+.vs-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.vs-text {
+  background: var(--color-wood-100);
+  color: var(--color-wood-600);
+  padding: 4px 16px;
+  border-radius: 12px;
+  font-weight: bold;
+  font-size: 0.875rem;
+}
+
+/* 卡片底部 */
+.card-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fafafa;
+}
+
+.room-time {
+  font-size: 0.875rem;
+  color: #9ca3af;
+}
+
+/* 分页 */
 .pagination-wrapper {
-  margin-top: 24px;
+  margin-top: 32px;
   display: flex;
   justify-content: center;
 }

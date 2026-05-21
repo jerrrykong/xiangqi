@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -16,6 +16,17 @@ const rankings = ref<RankingItem[]>([])
 const history = ref<HistoryItem[]>([])
 const isLoading = ref(false)
 
+// 用于取消未完成的请求
+let abortController: AbortController | null = null
+
+onUnmounted(() => {
+  // 组件卸载时取消未完成的请求
+  if (abortController) {
+    abortController.abort()
+    abortController = null
+  }
+})
+
 // 计算胜率
 const winRate = computed(() => {
   if (!authStore.user) return 0
@@ -27,6 +38,11 @@ const winRate = computed(() => {
 })
 
 onMounted(async () => {
+  // 确保 auth 状态已初始化
+  if (!authStore.user && authStore.token) {
+    await authStore.fetchCurrentUser()
+  }
+
   // 检查用户是否已经在房间内，如果是则直接跳转
   try {
     const myRoom = await getMyRoom()

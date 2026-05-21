@@ -195,3 +195,12 @@ func (r *RoomRepository) IsUserInRoom(ctx context.Context, userID int64) (bool, 
 		Count(&count).Error
 	return count > 0, err
 }
+
+// GetActiveRooms gets all rooms that are not finished (waiting, ready, playing)
+func (r *RoomRepository) GetActiveRooms(ctx context.Context) ([]*model.Room, error) {
+	var rooms []*model.Room
+	err := r.db.WithContext(ctx).
+		Where("status IN ?", []model.RoomStatus{model.RoomStatusWaiting, model.RoomStatusReady, model.RoomStatusPlaying}).
+		Find(&rooms).Error
+	return rooms, err
+}

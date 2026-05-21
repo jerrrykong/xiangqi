@@ -35,7 +35,9 @@ export async function getHistory(
   pageSize = 20,
   type?: string
 ): Promise<HistoryResponse> {
-  const response = await api.get<ApiResponse<HistoryResponse>>('/users/history', {
+  // 先获取当前用户 ID
+  const user = await getCurrentUser()
+  const response = await api.get<ApiResponse<HistoryResponse>>(`/users/${user.user_id}/history`, {
     params: { page, page_size: pageSize, type },
   })
   return response.data.data!

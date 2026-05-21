@@ -15,9 +15,16 @@ from .player_session import PlayerSession, ConnectionState
 from .protocol import outbound as out_msg
 
 
-# Configure module logger
-logger = logging.getLogger(__name__)
-
+# Configure module logger — must add handler so logs appear in uvicorn output
+_logger = logging.getLogger(__name__)
+_handler = logging.StreamHandler()
+_handler.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S"
+))
+_logger.addHandler(_handler)
+_logger.setLevel(logging.DEBUG)  # Capture all levels for diagnostics
+# Don't propagate to root to avoid double-printing with uvicorn
+_logger.propagate = False
 
 def _log(level: str, msg: str, **kwargs):
     """Structured logging helper."""
@@ -25,8 +32,7 @@ def _log(level: str, msg: str, **kwargs):
     for k, v in kwargs.items():
         parts.append(f"{k}={v}")
     log_msg = " | ".join(parts)
-    getattr(logger, level)(log_msg)
-
+    getattr(_logger, level)(log_msg)
 
 class ConnectionManager:
     """Manages all active WebSocket connections."""
@@ -469,9 +475,15 @@ class GameWebSocketServer:
                          room_id=room_id,
                          session_id=session.session_id,
                          reason=msg)
-                    await websocket.send_json(
-                        out_msg.error_message(3001, msg)
-                    )
+                    # Check if WebSocket is still connected before sending
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_json(
+                            out_msg.error_message(3001, msg)
+                        )
+                    else:
+                        _log("warning", "websocket_closed_before_send",
+                             room_id=room_id,
+                             session_id=session.session_id)
                     return
 
                 # Ensure session.side is set correctly after assign_side/join_room
@@ -534,9 +546,15 @@ class GameWebSocketServer:
                              room_id=room_id,
                              session_id=session.session_id,
                              side=session.side)
-                        await websocket.send_json(
-                            out_msg.error_message(3002, "Internal error: side not assigned")
-                        )
+                        # Check if WebSocket is still connected before sending
+                        if websocket.client_state == WebSocketState.CONNECTED:
+                            await websocket.send_json(
+                                out_msg.error_message(3002, "Internal error: side not assigned")
+                            )
+                        else:
+                            _log("warning", "websocket_closed_before_send",
+                                 room_id=room_id,
+                                 session_id=session.session_id)
                         return
 
                     your_side = session.side
@@ -553,7 +571,15 @@ class GameWebSocketServer:
                          msg_type=game_start_msg.get("type"),
                          msg_your_color=game_start_msg.get("your_color"),
                          msg_room_id=game_start_msg.get("room_id"))
-                    await websocket.send_json(game_start_msg)
+                    # Check if WebSocket is still connected before sending
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_json(game_start_msg)
+                    else:
+                        _log("warning", "websocket_closed_before_send",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             client_state=websocket.client_state.value)
+                        return
 
                     # Notify opponent
                     opponent = room.get_opponent_session(session.session_id)
@@ -601,8 +627,14 @@ class GameWebSocketServer:
                              room_id=room_id,
                              session_id=session.session_id,
                              side=session.side)
-                        await websocket.send_json(
-                            out_msg.error_message(3002, "Internal error: side not assigned"))
+                        # Check if WebSocket is still connected before sending
+                        if websocket.client_state == WebSocketState.CONNECTED:
+                            await websocket.send_json(
+                                out_msg.error_message(3002, "Internal error: side not assigned"))
+                        else:
+                            _log("warning", "websocket_closed_before_send",
+                                 room_id=room_id,
+                                 session_id=session.session_id)
                         return
 
                     waiting_msg = out_msg.waiting_message(room_id=room_id, side=session.side)
@@ -612,7 +644,14 @@ class GameWebSocketServer:
                          your_side=session.side,
                          msg_your_color=waiting_msg.get("your_color"),
                          msg_room_id=waiting_msg.get("room_id"))
-                    await websocket.send_json(waiting_msg)
+                    # Check if WebSocket is still connected before sending
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_json(waiting_msg)
+                    else:
+                        _log("warning", "websocket_closed_before_send",
+                             room_id=room_id,
+                             session_id=session.session_id,
+                             client_state=websocket.client_state.value)
 
                 # Message loop
                 message_count = 0
@@ -634,7 +673,14 @@ class GameWebSocketServer:
                                  room_id=room_id,
                                  session_id=session.session_id,
                                  msg_type=response.get("type"))
-                            await websocket.send_json(response)
+                            # Check if WebSocket is still connected before sending
+                            if websocket.client_state == WebSocketState.CONNECTED:
+                                await websocket.send_json(response)
+                            else:
+                                _log("warning", "websocket_closed_before_send",
+                                     room_id=room_id,
+                                     session_id=session.session_id,
+                                     msg_type=response.get("type"))
 
                     except WebSocketDisconnect:
                         duration = time.time() - start_time
@@ -650,9 +696,15 @@ class GameWebSocketServer:
                              session_id=session.session_id,
                              error=str(e),
                              error_type=type(e).__name__)
-                        await websocket.send_json(
-                            out_msg.error_message(1000, str(e))
-                        )
+                        # Check if WebSocket is still connected before sending
+                        if websocket.client_state == WebSocketState.CONNECTED:
+                            await websocket.send_json(
+                                out_msg.error_message(1000, str(e))
+                            )
+                        else:
+                            _log("warning", "websocket_closed_before_send",
+                                 room_id=room_id,
+                                 session_id=session.session_id)
 
             except WebSocketDisconnect:
                 duration = time.time() - start_time

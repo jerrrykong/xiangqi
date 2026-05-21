@@ -50,7 +50,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, from) => {
   const authStore = useAuthStore()
   const requiresAuth = to.meta.requiresAuth !== false
 
@@ -61,12 +61,13 @@ router.beforeEach((to, from, next) => {
 
   if (requiresAuth && !authStore.isAuthenticated) {
     // 需要登录，跳转到登录页
-    next({ name: 'Login', query: { redirect: to.fullPath } })
+    return { name: 'Login', query: { redirect: to.fullPath } }
   } else if ((to.name === 'Login' || to.name === 'Register') && authStore.isAuthenticated) {
     // 已登录，跳转到大厅
-    next({ name: 'Lobby' })
+    return { name: 'Lobby' }
   } else {
-    next()
+    // next()
+    return
   }
 })
 

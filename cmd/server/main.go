@@ -4,10 +4,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -27,6 +29,13 @@ import (
 )
 
 func main() {
+	// Initialize log file
+	logFile, err := initLog()
+	if err != nil {
+		log.Fatalf("Failed to initialize log file: %v", err)
+	}
+	defer logFile.Close()
+
 	// Load configuration
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
@@ -34,7 +43,7 @@ func main() {
 	}
 
 	// Initialize database
-	db, err := initDB(cfg)
+	db, err := initDB(cfg, logFile)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -81,6 +90,12 @@ func main() {
 		matchSvc.StartMatchLoop()
 	}
 
+	// Start room timeout checker
+	ctx := context.Background()
+	if err := roomSvc.StartTimeoutChecker(ctx); err != nil {
+		log.Printf("Warning: Failed to start room timeout checker: %v", err)
+	}
+
 	// Create HTTP server
 	server := &http.Server{
 		Addr:    cfg.GetAddress(),
@@ -105,6 +120,9 @@ func main() {
 	// Stop match loop
 	matchSvc.StopMatchLoop()
 
+	// Stop room timeout checker
+	roomSvc.StopTimeoutChecker()
+
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -117,7 +135,7 @@ func main() {
 }
 
 // initDB initializes the database connection
-func initDB(cfg *config.Config) (*gorm.DB, error) {
+func initDB(cfg *config.Config, logFile *os.File) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable TimeZone=UTC",
 		cfg.Database.Host,
@@ -128,12 +146,12 @@ func initDB(cfg *config.Config) (*gorm.DB, error) {
 	)
 
 	gormLogger := logger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		log.New(logFile, "\r\n", log.LstdFlags),
 		logger.Config{
 			SlowThreshold:             200 * time.Millisecond,
 			LogLevel:                  logger.Info,
 			IgnoreRecordNotFoundError: true,
-			Colorful:                  true,
+			Colorful:                  false,
 		},
 	)
 
@@ -172,6 +190,36 @@ func initDB(cfg *config.Config) (*gorm.DB, error) {
 	}
 
 	return db, nil
+}
+
+// initLog initializes the log file
+func initLog() (*os.File, error) {
+	// Create logs directory if not exists
+	logDir := "logs"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Generate log filename with date
+	logFileName := filepath.Join(logDir, fmt.Sprintf("server_%s.log", time.Now().Format("2006-01-02")))
+
+	// Open log file (append mode)
+	logFile, err := os.OpenFile(logFileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	// Configure standard logger to write to file
+	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	// Also write to console
+	multiWriter := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(multiWriter)
+
+	log.Printf("Log file initialized: %s", logFileName)
+
+	return logFile, nil
 }
 
 // initRedis initializes the Redis connection
@@ -213,73 +261,77 @@ func setupRouter(
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
 
-	// Health check
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
-	// Public auth routes (rate limited)
-	auth := r.Group("/auth")
-	auth.Use(middleware.RateLimit(redisClient, 10, time.Minute))
+	// API v1 group
+	api := r.Group("/api/v1")
 	{
-		auth.POST("/register", authHandler.Register)
-		auth.POST("/login", authHandler.Login)
-	}
+		// Health check
+		api.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		})
 
-	// Authenticated routes
-	authenticated := r.Group("")
-	authenticated.Use(middleware.JWTAuth(jwtManager))
-	{
-		// Auth
-		authenticated.POST("/auth/refresh", authHandler.Refresh)
-
-		// Users
-		users := authenticated.Group("/users")
+		// Public auth routes (rate limited)
+		auth := api.Group("/auth")
+		auth.Use(middleware.RateLimit(redisClient, 10, time.Minute))
 		{
-			users.GET("/me", userHandler.GetMe)
-			users.PATCH("/me", userHandler.UpdateProfile)
-			users.GET("/rankings", userHandler.GetRankings)
-			users.GET("/:id", userHandler.GetUser)
-			users.GET("/:id/history", userHandler.GetHistory)
+			auth.POST("/register", authHandler.Register)
+			auth.POST("/login", authHandler.Login)
 		}
 
-		// Rooms
-		rooms := authenticated.Group("/rooms")
+		// Authenticated routes
+		authenticated := api.Group("")
+		authenticated.Use(middleware.JWTAuth(jwtManager))
 		{
-			rooms.POST("", roomHandler.CreateRoom)
-			rooms.GET("", roomHandler.ListRooms)
-			rooms.GET("/me", roomHandler.GetMyRoom)
-			rooms.GET("/:id", roomHandler.GetRoom)
-			rooms.POST("/:id/join", roomHandler.JoinRoom)
-			rooms.POST("/:id/ready", roomHandler.PlayerReady)
-			rooms.POST("/:id/leave", roomHandler.LeaveRoom)
-			rooms.DELETE("/:id", roomHandler.DeleteRoom)
+			// Auth
+			authenticated.POST("/auth/refresh", authHandler.Refresh)
+
+			// Users
+			users := authenticated.Group("/users")
+			{
+				users.GET("/me", userHandler.GetMe)
+				users.PATCH("/me", userHandler.UpdateProfile)
+				users.GET("/rankings", userHandler.GetRankings)
+				users.GET("/:id", userHandler.GetUser)
+				users.GET("/:id/history", userHandler.GetHistory)
+			}
+
+			// Rooms
+			rooms := authenticated.Group("/rooms")
+			{
+				rooms.POST("", roomHandler.CreateRoom)
+				rooms.GET("", roomHandler.ListRooms)
+				rooms.GET("/me", roomHandler.GetMyRoom)
+				rooms.GET("/:id", roomHandler.GetRoom)
+				rooms.POST("/:id/join", roomHandler.JoinRoom)
+				rooms.POST("/:id/ready", roomHandler.PlayerReady)
+				rooms.POST("/:id/leave", roomHandler.LeaveRoom)
+				rooms.DELETE("/:id", roomHandler.DeleteRoom)
+			}
+
+			// Match
+			match := authenticated.Group("/match")
+			{
+				match.POST("/pvp", matchHandler.JoinPvP)
+				match.DELETE("/pvp", matchHandler.LeavePvP)
+				match.GET("/status", matchHandler.GetStatus)
+				match.POST("/pve/:level", matchHandler.JoinPvE)
+			}
 		}
 
-		// Match
-		match := authenticated.Group("/match")
+		// Admin routes
+		admin := api.Group("/admin")
+		admin.Use(middleware.JWTAuth(jwtManager))
+		admin.Use(middleware.AdminOnly())
 		{
-			match.POST("/pvp", matchHandler.JoinPvP)
-			match.DELETE("/pvp", matchHandler.LeavePvP)
-			match.GET("/status", matchHandler.GetStatus)
-			match.POST("/pve/:level", matchHandler.JoinPvE)
+			admin.GET("/users", adminHandler.ListUsers)
+			admin.PATCH("/users/:id/ban", adminHandler.BanUser)
+			admin.GET("/stats", adminHandler.GetStats)
+			admin.POST("/models/upload", adminHandler.UploadModel)
+			admin.PATCH("/models/:id/publish", adminHandler.PublishModel)
+			admin.GET("/models", adminHandler.ListModels)
 		}
 	}
 
-	// Admin routes
-	admin := r.Group("/admin")
-	admin.Use(middleware.JWTAuth(jwtManager))
-	admin.Use(middleware.AdminOnly())
-	{
-		admin.GET("/users", adminHandler.ListUsers)
-		admin.PATCH("/users/:id/ban", adminHandler.BanUser)
-		admin.GET("/stats", adminHandler.GetStats)
-		admin.POST("/models/upload", adminHandler.UploadModel)
-		admin.PATCH("/models/:id/publish", adminHandler.PublishModel)
-		admin.GET("/models", adminHandler.ListModels)
-	}
-
-	// Internal routes (for Game service callbacks)
+	// Internal routes (for Game service callbacks) - outside /api/v1
 	internal := r.Group("/internal")
 	internal.Use(middleware.InternalAuth(cfg.Internal.Secret))
 	{

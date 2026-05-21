@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,13 +27,231 @@ var (
 	ErrCannotJoinOwnRoom = errors.New("cannot join your own room")
 )
 
+// Timeout constants
+const (
+	WaitingRoomTimeout = 30 * time.Minute // 等待中的房间 30 分钟超时
+	PlayingRoomTimeout = 2 * time.Hour    // 对局中的房间 2 小时超时
+	CheckInterval     = 1 * time.Minute   // 检查间隔
+)
+
+// RoomTimeout 房间超时信息（内存缓存）
+type RoomTimeout struct {
+	RoomID    string
+	CreatedAt time.Time
+	PlayingAt time.Time             // 进入对局的时间，零值表示未开始
+	Status    model.RoomStatus      // 房间状态
+}
+
+// TimeoutChecker 超时检查器
+type TimeoutChecker struct {
+	rooms    map[string]*RoomTimeout // roomID -> timeout info
+	mu       sync.RWMutex
+	roomRepo *repository.RoomRepository
+	stopCh   chan struct{}
+	running  bool
+}
+
+// NewTimeoutChecker 创建超时检查器
+func NewTimeoutChecker(roomRepo *repository.RoomRepository) *TimeoutChecker {
+	return &TimeoutChecker{
+		rooms:    make(map[string]*RoomTimeout),
+		roomRepo: roomRepo,
+		stopCh:   make(chan struct{}),
+	}
+}
+
+// LoadFromDB 从数据库加载所有非结束状态的房间
+func (tc *TimeoutChecker) LoadFromDB(ctx context.Context) error {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	log.Info("timeout_checker_load_from_db", "step", "start")
+
+	rooms, err := tc.roomRepo.GetActiveRooms(ctx)
+	if err != nil {
+		log.Error("timeout_checker_load_from_db_error",
+			"error", err.Error(),
+		)
+		return err
+	}
+
+	for _, room := range rooms {
+		rt := &RoomTimeout{
+			RoomID:    room.ID,
+			CreatedAt: room.CreatedAt,
+			Status:    room.Status,
+		}
+
+		// 如果是对局中状态，设置 PlayingAt
+		if room.Status == model.RoomStatusPlaying {
+			// 使用当前时间作为开始时间
+			rt.PlayingAt = time.Now()
+		}
+
+		tc.rooms[room.ID] = rt
+	}
+
+	log.Info("timeout_checker_load_from_db_success",
+		"total_rooms", len(rooms),
+	)
+
+	return nil
+}
+
+// AddRoom 添加房间到缓存
+func (tc *TimeoutChecker) AddRoom(roomID string, createdAt time.Time) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	tc.rooms[roomID] = &RoomTimeout{
+		RoomID:    roomID,
+		CreatedAt: createdAt,
+		Status:    model.RoomStatusWaiting,
+	}
+
+	log.Debug("timeout_checker_add_room",
+		"room_id", roomID,
+	)
+}
+
+// RemoveRoom 从缓存移除房间
+func (tc *TimeoutChecker) RemoveRoom(roomID string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	delete(tc.rooms, roomID)
+
+	log.Debug("timeout_checker_remove_room",
+		"room_id", roomID,
+	)
+}
+
+// StartGame 更新房间状态为对局中
+func (tc *TimeoutChecker) StartGame(roomID string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	if rt, ok := tc.rooms[roomID]; ok {
+		rt.Status = model.RoomStatusPlaying
+		rt.PlayingAt = time.Now()
+
+		log.Debug("timeout_checker_game_started",
+			"room_id", roomID,
+		)
+	}
+}
+
+// Start 启动超时检查（定时任务）
+func (tc *TimeoutChecker) Start(ctx context.Context) {
+	tc.mu.Lock()
+	if tc.running {
+		tc.mu.Unlock()
+		return
+	}
+	tc.running = true
+	tc.mu.Unlock()
+
+	log.Info("timeout_checker_started")
+
+	ticker := time.NewTicker(CheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			tc.checkAndCleanup(ctx)
+		case <-tc.stopCh:
+			log.Info("timeout_checker_stopped")
+			return
+		case <-ctx.Done():
+			log.Info("timeout_checker_context_done")
+			return
+		}
+	}
+}
+
+// Stop 停止超时检查
+func (tc *TimeoutChecker) Stop() {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	if tc.running {
+		close(tc.stopCh)
+		tc.running = false
+		tc.stopCh = make(chan struct{})
+	}
+}
+
+// checkAndCleanup 检查并清理超时房间
+func (tc *TimeoutChecker) checkAndCleanup(ctx context.Context) {
+	tc.mu.Lock()
+	// 复制一份 keys 避免在遍历时修改
+	roomIDs := make([]string, 0, len(tc.rooms))
+	for id := range tc.rooms {
+		roomIDs = append(roomIDs, id)
+	}
+	tc.mu.Unlock()
+
+	now := time.Now()
+	cleaned := 0
+
+	for _, roomID := range roomIDs {
+		tc.mu.RLock()
+		rt, ok := tc.rooms[roomID]
+		tc.mu.RUnlock()
+
+		if !ok {
+			continue
+		}
+
+		var expired bool
+		var reason string
+
+		if rt.Status == model.RoomStatusWaiting {
+			// 等待中的房间：30 分钟超时
+			if now.Sub(rt.CreatedAt) > WaitingRoomTimeout {
+				expired = true
+				reason = "waiting_timeout"
+			}
+		} else if rt.Status == model.RoomStatusPlaying {
+			// 对局中的房间：2 小时超时
+			if !rt.PlayingAt.IsZero() && now.Sub(rt.PlayingAt) > PlayingRoomTimeout {
+				expired = true
+				reason = "playing_timeout"
+			}
+		}
+
+		if expired {
+			log.Info("timeout_checker_room_expired",
+				"room_id", roomID,
+				"reason", reason,
+			)
+
+			// 删除房间（忽略错误）
+			_ = tc.roomRepo.Delete(ctx, roomID)
+
+			// 从缓存移除
+			tc.RemoveRoom(roomID)
+
+			cleaned++
+		}
+	}
+
+	if cleaned > 0 {
+		log.Info("timeout_checker_cleanup_summary",
+			"cleaned_rooms", cleaned,
+		)
+	}
+}
+
 // RoomService handles room-related business logic
 type RoomService struct {
-	roomRepo   *repository.RoomRepository
-	userRepo   *repository.UserRepository
-	eloRepo    *repository.EloRepository
-	gameProxy  *GameProxy
-	redis      *redis.Client
+	roomRepo       *repository.RoomRepository
+	userRepo       *repository.UserRepository
+	eloRepo        *repository.EloRepository
+	gameProxy      *GameProxy
+	redis          *redis.Client
+	timeoutChecker *TimeoutChecker
 }
 
 // NewRoomService creates a new RoomService
@@ -43,13 +262,29 @@ func NewRoomService(
 	gameProxy *GameProxy,
 	redisClient *redis.Client,
 ) *RoomService {
+	tc := NewTimeoutChecker(roomRepo)
 	return &RoomService{
-		roomRepo:  roomRepo,
-		userRepo:  userRepo,
-		eloRepo:   eloRepo,
-		gameProxy: gameProxy,
-		redis:     redisClient,
+		roomRepo:       roomRepo,
+		userRepo:       userRepo,
+		eloRepo:        eloRepo,
+		gameProxy:      gameProxy,
+		redis:          redisClient,
+		timeoutChecker: tc,
 	}
+}
+
+// StartTimeoutChecker 启动超时检查器
+func (s *RoomService) StartTimeoutChecker(ctx context.Context) error {
+	if err := s.timeoutChecker.LoadFromDB(ctx); err != nil {
+		return err
+	}
+	go s.timeoutChecker.Start(ctx)
+	return nil
+}
+
+// StopTimeoutChecker 停止超时检查器
+func (s *RoomService) StopTimeoutChecker() {
+	s.timeoutChecker.Stop()
 }
 
 // CreateRoom creates a new PvP room
@@ -100,6 +335,9 @@ func (s *RoomService) CreateRoom(ctx context.Context, userID int64) (*model.Crea
 		)
 		return nil, err
 	}
+
+	// 添加到超时检查缓存
+	s.timeoutChecker.AddRoom(room.ID, room.CreatedAt)
 
 	log.Info("room_service_create_room_success",
 		"user_id", userID,
@@ -371,6 +609,9 @@ func (s *RoomService) PlayerReady(ctx context.Context, roomID string, userID int
 			return nil, err
 		}
 
+		// 更新超时检查器状态为 playing
+		s.timeoutChecker.StartGame(roomID)
+
 		// Get opponent info for game proxy
 		var redID, blackID int64
 		var redUsername, blackUsername string
@@ -516,6 +757,9 @@ func (s *RoomService) LeaveRoom(ctx context.Context, roomID string, userID int64
 		return err
 	}
 
+	// 从超时检查缓存移除
+	s.timeoutChecker.RemoveRoom(roomID)
+
 	log.Info("room_service_leave_room_success",
 		"user_id", userID,
 		"room_id", roomID,
@@ -585,6 +829,9 @@ func (s *RoomService) DeleteRoom(ctx context.Context, roomID string, userID int6
 		)
 		return err
 	}
+
+	// 从超时检查缓存移除
+	s.timeoutChecker.RemoveRoom(roomID)
 
 	log.Info("room_service_delete_room_success",
 		"user_id", userID,

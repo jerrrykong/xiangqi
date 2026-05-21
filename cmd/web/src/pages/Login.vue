@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useRouter, type RouteLocationNormalized } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -9,6 +9,7 @@ const authStore = useAuthStore()
 
 const formRef = ref()
 const isLoading = ref(false)
+const errorMessage = ref('')
 
 const form = reactive({
   username: '',
@@ -29,10 +30,19 @@ const rules = {
 // 获取 redirect 参数
 const redirect = (router.currentRoute.value.query.redirect as string) || '/lobby'
 
+// 监听输入，清除错误消息
+watch(() => form.username, () => {
+  if (errorMessage.value) errorMessage.value = ''
+})
+watch(() => form.password, () => {
+  if (errorMessage.value) errorMessage.value = ''
+})
+
 async function handleLogin() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
 
+  errorMessage.value = ''
   isLoading.value = true
   try {
     await authStore.login(form.username, form.password)
@@ -40,7 +50,7 @@ async function handleLogin() {
     router.push(redirect)
   } catch (error: any) {
     const message = error.response?.data?.message || '登录失败'
-    ElMessage.error(message)
+    errorMessage.value = message
   } finally {
     isLoading.value = false
   }
@@ -79,6 +89,12 @@ async function handleLogin() {
             show-password
           />
         </el-form-item>
+
+        <!-- 错误消息 -->
+        <div v-if="errorMessage" class="error-message">
+          <span class="error-icon">⚠️</span>
+          <span class="error-text">{{ errorMessage }}</span>
+        </div>
 
         <el-form-item class="form-actions">
           <el-button
@@ -145,6 +161,26 @@ async function handleLogin() {
 
 .form-actions {
   margin-top: 24px;
+}
+
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.error-icon {
+  font-size: 1rem;
+}
+
+.error-text {
+  color: #dc2626;
+  font-size: 0.875rem;
 }
 
 .auth-footer {
