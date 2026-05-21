@@ -1,73 +1,68 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
-import { getRankings, getHistory } from '@/api/user'
-import { getMyRoom } from '@/api/room'
-import type { RankingItem, HistoryItem } from '@/types/api'
+import { useMatchStore } from '@/stores/match'
+import { useGameStore } from '@/stores/game'
+import { wsClient } from '@/ws/client'
+import { WSMsgType } from '@/ws/types'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const roomStore = useRoomStore()
+const matchStore = useMatchStore()
+const gameStore = useGameStore()
 
-const rankings = ref<RankingItem[]>([])
-const history = ref<HistoryItem[]>([])
+const rankings = ref<any[]>([])
+const history = ref<any[]>([])
 const isLoading = ref(false)
 
-// 用于取消未完成的请求
-let abortController: AbortController | null = null
+// PvP 创建房间等待状态
+const isWaitingForOpponent = ref(false)
+const isCreatingRoom = ref(false)
 
-onUnmounted(() => {
-  // 组件卸载时取消未完成的请求
-  if (abortController) {
-    abortController.abort()
-    abortController = null
-  }
-})
+// PvE 难度选择
+const showPvEDialog = ref(false)
+const selectedDifficulty = ref(3)
 
 // 计算胜率
 const winRate = computed(() => {
   if (!authStore.user) return 0
   const games = authStore.user.games_count
   if (games === 0) return 0
-  // 从历史记录计算
   const wins = history.value.filter((h) => h.result === 'win').length
   return Math.round((wins / games) * 100)
 })
 
+// 监听匹配成功 → 跳转游戏
+watch(() => matchStore.isMatchmaking, (val, oldVal) => {
+  if (oldVal && !val && roomStore.currentRoom) {
+    // 匹配成功，等待 game_start
+  }
+})
+
+// 监听游戏开始 → 跳转
+watch(() => gameStore.isGameStarted, (val) => {
+  if (val && roomStore.currentRoom) {
+    isWaitingForOpponent.value = false
+    router.push(`/game/${roomStore.currentRoom.roomId}`)
+  }
+})
+
 onMounted(async () => {
-  // 确保 auth 状态已初始化
-  if (!authStore.user && authStore.token) {
-    await authStore.fetchCurrentUser()
-  }
-
-  // 检查用户是否已经在房间内，如果是则直接跳转
-  try {
-    const myRoom = await getMyRoom()
-    if (myRoom?.room_id) {
-      // 如果游戏正在进行，直接跳转到对局页面
-      if (myRoom.status === 'playing') {
-        ElMessage.info('检测到您有正在进行的对局，正在恢复...')
-        router.push(`/game/${myRoom.room_id}`)
-        return
-      }
-      // 否则跳转到房间页面
-      router.push(`/room/${myRoom.room_id}`)
-      return
-    }
-  } catch {
-    // 没有在房间内，正常继续
-  }
-
   await Promise.all([fetchRankings(), fetchHistory()])
+})
+
+onUnmounted(() => {
+  // 组件卸载时不需要取消 WS 请求
 })
 
 async function fetchRankings() {
   try {
-    const response = await getRankings(1, 10)
-    rankings.value = response.rankings
+    const result = await wsClient.request(WSMsgType.USER_GET_RANKINGS, { page: 1, page_size: 10 })
+    rankings.value = result.rankings || []
   } catch (error) {
     console.error('Failed to fetch rankings:', error)
   }
@@ -75,46 +70,70 @@ async function fetchRankings() {
 
 async function fetchHistory() {
   try {
-    const response = await getHistory(1, 10)
-    history.value = response.history
+    const result = await wsClient.request(WSMsgType.USER_GET_HISTORY, { page: 1, page_size: 10 })
+    history.value = result.games || []
   } catch (error) {
     console.error('Failed to fetch history:', error)
   }
 }
 
+// 创建 PvP 房间
 async function handleCreateRoom() {
+  isCreatingRoom.value = true
+  try {
+    await roomStore.createRoom('pvp')
+    isWaitingForOpponent.value = true
+    ElMessage.success('房间创建成功，等待对手加入...')
+  } catch (error: any) {
+    ElMessage.error(error.message || '创建房间失败')
+  } finally {
+    isCreatingRoom.value = false
+  }
+}
+
+// 创建 PvE 房间
+async function handleCreatePvERoom() {
+  showPvEDialog.value = false
   isLoading.value = true
   try {
-    const response = await roomStore.createRoom()
-    ElMessage.success('房间创建成功')
-    router.push(`/room/${response.room_id}`)
+    await roomStore.createRoom('pve', selectedDifficulty.value)
+    // PvE 创建后直接等待 game_start
+    ElMessage.info('正在启动AI对局...')
   } catch (error: any) {
-    const errCode = error.response?.data?.code
-    const message = error.response?.data?.message || '创建房间失败'
-
-    // 已经在房间内，查询当前房间并跳转
-    if (errCode === 3004 || message.includes('already in a room')) {
-      try {
-        const myRoom = await getMyRoom()
-        ElMessage.info('您已在房间内，正在跳转...')
-        router.push(`/room/${myRoom.room_id}`)
-      } catch (getRoomError: any) {
-        // 如果后端返回 3005 或 404，说明用户实际上不在任何房间（可能是旧数据）
-        const getErrCode = getRoomError.response?.data?.code
-        const getErrStatus = getRoomError.response?.status
-        if (getErrCode === 3005 /* ErrCodeNotInRoom */ || getErrStatus === 404) {
-          // 清除 store 中的旧房间状态，让用户重新创建房间
-          roomStore.clearRoom()
-          ElMessage.warning('房间状态已过期，请重新创建')
-        } else {
-          ElMessage.error('获取当前房间失败，请刷新页面重试')
-        }
-      }
-    } else {
-      ElMessage.error(message)
-    }
+    ElMessage.error(error.message || '创建PvE房间失败')
   } finally {
     isLoading.value = false
+  }
+}
+
+// 快速匹配
+async function handleMatch() {
+  try {
+    await matchStore.joinMatch('pvp')
+    ElMessage.info('正在匹配对手...')
+  } catch (error: any) {
+    ElMessage.error(error.message || '匹配失败')
+  }
+}
+
+// 取消匹配
+async function handleCancelMatch() {
+  try {
+    await matchStore.leaveMatch()
+    ElMessage.info('已取消匹配')
+  } catch (error: any) {
+    ElMessage.error(error.message || '取消匹配失败')
+  }
+}
+
+// 取消等待对手
+async function handleCancelWaiting() {
+  try {
+    await roomStore.leaveRoom()
+    isWaitingForOpponent.value = false
+    ElMessage.info('已离开房间')
+  } catch (error: any) {
+    ElMessage.error(error.message || '离开房间失败')
   }
 }
 
@@ -198,15 +217,52 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
 
             <!-- 操作按钮 -->
             <div class="action-card card">
-              <el-button type="primary" size="large" class="full-width" @click="handleCreateRoom">创建房间</el-button>
-              <el-button type="success" size="large" class="full-width" @click="router.push('/rooms')">房间列表</el-button>
+              <el-button type="primary" size="large" class="full-width" :loading="isCreatingRoom" @click="handleCreateRoom">
+                创建PvP房间
+              </el-button>
+              <el-button type="success" size="large" class="full-width" @click="showPvEDialog = true">
+                PvE 人机对战
+              </el-button>
+              <el-button size="large" class="full-width" @click="router.push('/rooms')">
+                房间列表
+              </el-button>
             </div>
 
             <!-- 快速匹配 -->
             <div class="match-card card">
               <h3>快速匹配</h3>
               <p class="text-muted">自动匹配实力相近的对手，开始一场紧张刺激的对局！</p>
-              <el-button type="warning" size="large" class="full-width">开始匹配</el-button>
+              <el-button
+                v-if="!matchStore.isMatchmaking"
+                type="warning"
+                size="large"
+                class="full-width"
+                @click="handleMatch"
+              >
+                开始匹配
+              </el-button>
+              <div v-else class="match-status">
+                <div class="match-waiting">
+                  <div class="loading-spinner-small"></div>
+                  <span>匹配中... (约{{ matchStore.estimatedWait }}秒)</span>
+                </div>
+                <el-button type="info" size="large" class="full-width" @click="handleCancelMatch">
+                  取消匹配
+                </el-button>
+              </div>
+            </div>
+
+            <!-- 等待对手弹窗提示 -->
+            <div v-if="isWaitingForOpponent" class="waiting-card card">
+              <h3>等待对手加入</h3>
+              <p class="text-muted">房间号: {{ roomStore.currentRoom?.roomId?.slice(0, 8) }}</p>
+              <div class="waiting-animation">
+                <div class="loading-spinner-small"></div>
+                <span>等待中...</span>
+              </div>
+              <el-button type="danger" size="large" class="full-width" @click="handleCancelWaiting">
+                取消等待
+              </el-button>
             </div>
           </div>
 
@@ -262,6 +318,24 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
         </div>
       </div>
     </main>
+
+    <!-- PvE 难度选择弹窗 -->
+    <el-dialog v-model="showPvEDialog" title="人机对战" width="400px">
+      <div class="difficulty-selector">
+        <p>选择AI难度：</p>
+        <el-slider
+          v-model="selectedDifficulty"
+          :min="1"
+          :max="5"
+          :step="1"
+          :marks="{ 1: '简单', 2: '中等', 3: '困难', 4: '大师', 5: '宗师' }"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="showPvEDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleCreatePvERoom">开始对局</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -405,6 +479,51 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   margin-bottom: 16px;
 }
 
+.match-status {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.match-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  color: var(--color-wood-500);
+}
+
+.waiting-card {
+  border: 2px solid var(--color-wood-300);
+  text-align: center;
+}
+
+.waiting-card h3 {
+  margin-bottom: 8px;
+}
+
+.waiting-animation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  margin: 16px 0;
+  color: var(--color-wood-500);
+}
+
+.loading-spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(139, 90, 43, 0.3);
+  border-top-color: var(--color-wood-500);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .full-width {
   width: 100%;
 }
@@ -453,17 +572,9 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   color: white;
 }
 
-.rank-badge.rank-0 {
-  background: #eab308;
-}
-
-.rank-badge.rank-1 {
-  background: #9ca3af;
-}
-
-.rank-badge.rank-2 {
-  background: #b45309;
-}
+.rank-badge.rank-0 { background: #eab308; }
+.rank-badge.rank-1 { background: #9ca3af; }
+.rank-badge.rank-2 { background: #b45309; }
 
 .rank-number {
   width: 32px;
@@ -471,30 +582,12 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   color: #6b7280;
 }
 
-.ranking-info {
-  flex: 1;
-}
-
-.ranking-name {
-  font-weight: 500;
-}
-
-.ranking-games {
-  font-size: 0.875rem;
-}
-
-.ranking-score {
-  text-align: right;
-}
-
-.score-value {
-  font-weight: bold;
-  color: var(--color-wood-600);
-}
-
-.score-label {
-  font-size: 0.875rem;
-}
+.ranking-info { flex: 1; }
+.ranking-name { font-weight: 500; }
+.ranking-games { font-size: 0.875rem; }
+.ranking-score { text-align: right; }
+.score-value { font-weight: bold; color: var(--color-wood-600); }
+.score-label { font-size: 0.875rem; }
 
 .history-item {
   padding: 12px;
@@ -503,9 +596,7 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   transition: border-color 0.2s;
 }
 
-.history-item:hover {
-  border-color: var(--color-wood-300);
-}
+.history-item:hover { border-color: var(--color-wood-300); }
 
 .history-header {
   display: flex;
@@ -514,9 +605,7 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   margin-bottom: 8px;
 }
 
-.history-time {
-  font-size: 0.875rem;
-}
+.history-time { font-size: 0.875rem; }
 
 .history-detail {
   display: flex;
@@ -525,26 +614,23 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   font-size: 0.875rem;
 }
 
-.history-side.red {
-  color: var(--color-piece-red);
-  font-weight: 500;
-}
-
-.history-side.black {
-  color: #1f2937;
-}
-
-.rating-change.positive {
-  color: #22c55e;
-}
-
-.rating-change.negative {
-  color: #ef4444;
-}
+.history-side.red { color: var(--color-piece-red); font-weight: 500; }
+.history-side.black { color: #1f2937; }
+.rating-change.positive { color: #22c55e; }
+.rating-change.negative { color: #ef4444; }
 
 .empty-state {
   text-align: center;
   color: #6b7280;
   padding: 32px 0;
+}
+
+.difficulty-selector {
+  padding: 16px 0;
+}
+
+.difficulty-selector p {
+  margin-bottom: 16px;
+  font-weight: 500;
 }
 </style>

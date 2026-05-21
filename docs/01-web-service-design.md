@@ -1,5 +1,13 @@
 # Web 服务详细设计（Go）
 
+> ⚠️ **此文档已标记为待废弃（v2.0 架构变更）**
+>
+> v2.0 架构将 Web 服务的所有功能（认证、用户管理、房间管理、ELO 匹配、管理后台）
+> 合并到统一的 Game 服务（Python），所有客户端通信改为 WebSocket 长连接。
+>
+> 本文档暂时保留作为参考，待新 Game 服务完成开发和验证后将下线此服务。
+> 新架构详见 [02-game-service-design.md](02-game-service-design.md) 和 [xianqi-architecture.md](xianqi-architecture.md)。
+
 > 服务职责：用户认证、房间管理、ELO 匹配、管理后台、对局分配
 > 技术栈：Go + Gin + GORM + Redis + PostgreSQL
 > 文档版本：v1.0

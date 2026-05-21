@@ -121,6 +121,24 @@ export interface Move {
   to_row: number
 }
 
+// v2.0 协议格式转换: Move → from_pos/to_pos
+export function moveToPos(move: Move): { from_pos: number[]; to_pos: number[] } {
+  return {
+    from_pos: [move.from_row, move.from_col],
+    to_pos: [move.to_row, move.to_col],
+  }
+}
+
+// v2.0 协议格式转换: from_pos/to_pos → Move
+export function posToMove(fromPos: number[], toPos: number[]): Move {
+  return {
+    from_row: fromPos[0],
+    from_col: fromPos[1],
+    to_row: toPos[0],
+    to_col: toPos[1],
+  }
+}
+
 // 初始棋盘布局
 export function getInitialBoard(): number[][] {
   // 棋盘: 10行 x 9列

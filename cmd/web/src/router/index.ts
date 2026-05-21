@@ -31,12 +31,6 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: '房间列表' },
   },
   {
-    path: '/room/:id',
-    name: 'GameRoom',
-    component: () => import('@/pages/GameRoom.vue'),
-    meta: { requiresAuth: true, title: '游戏房间' },
-  },
-  {
     path: '/game/:id',
     name: 'Game',
     component: () => import('@/pages/Game.vue'),
@@ -49,24 +43,18 @@ const router = createRouter({
   routes,
 })
 
-// 路由守卫
-router.beforeEach((to, from) => {
+// 路由守卫 — 基于 WS 认证状态
+router.beforeEach((to) => {
   const authStore = useAuthStore()
   const requiresAuth = to.meta.requiresAuth !== false
 
-  // 初始化认证状态
-  if (!authStore.user && authStore.token) {
-    authStore.init()
-  }
-
-  if (requiresAuth && !authStore.isAuthenticated) {
-    // 需要登录，跳转到登录页
+  if (requiresAuth && authStore.authState === 'unauthenticated') {
+    // 需要认证但未认证，跳转到登录页
     return { name: 'Login', query: { redirect: to.fullPath } }
-  } else if ((to.name === 'Login' || to.name === 'Register') && authStore.isAuthenticated) {
-    // 已登录，跳转到大厅
+  } else if (!requiresAuth && authStore.authState !== 'unauthenticated') {
+    // 已认证访问登录/注册页，跳转到大厅
     return { name: 'Lobby' }
   } else {
-    // next()
     return
   }
 })

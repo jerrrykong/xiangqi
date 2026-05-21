@@ -1,0 +1,29 @@
+# Game Service v2.0 - Dependencies
+# Python 3.11+
+
+# Web Framework
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+websockets==12.0
+
+# Database
+asyncpg==0.29.0
+
+# Authentication
+bcrypt==4.1.2
+PyJWT==2.8.0
+
+# Configuration
+pyyaml==6.0.1
+
+# Utilities
+python-multipart==0.0.9
+
+# AI (Phase 1 - Traditional Engine)
+# torch==2.2.0  # Phase 2: Uncomment when neural network AI is ready
+# numpy==1.26.4  # Phase 2: Uncomment when neural network AI is ready
+
+# Development
+pytest==8.0.2
+pytest-asyncio==0.23.5
+httpx==0.27.0

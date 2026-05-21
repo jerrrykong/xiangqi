@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
-import { useRouter, type RouteLocationNormalized } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
@@ -49,8 +49,7 @@ async function handleLogin() {
     ElMessage.success('登录成功')
     router.push(redirect)
   } catch (error: any) {
-    const message = error.response?.data?.message || '登录失败'
-    errorMessage.value = message
+    errorMessage.value = error.message || '登录失败'
   } finally {
     isLoading.value = false
   }
@@ -62,6 +61,12 @@ async function handleLogin() {
     <div class="auth-card card">
       <h1 class="auth-title">中国象棋</h1>
       <p class="auth-subtitle">用户登录</p>
+
+      <!-- WS 连接状态提示 -->
+      <div v-if="authStore.connectionState === 'disconnected' || authStore.connectionState === 'connecting'" class="connection-status">
+        <div class="loading-spinner-small"></div>
+        <span>{{ authStore.connectionState === 'connecting' ? '正在连接服务器...' : '连接已断开，正在重连...' }}</span>
+      </div>
 
       <el-form
         ref="formRef"
@@ -102,6 +107,7 @@ async function handleLogin() {
             size="large"
             class="full-width"
             :loading="isLoading"
+            :disabled="authStore.connectionState !== 'connected'"
             native-type="submit"
           >
             登录
@@ -161,6 +167,32 @@ async function handleLogin() {
 
 .form-actions {
   margin-top: 24px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.875rem;
+  color: #3b82f6;
+}
+
+.loading-spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .error-message {

@@ -1,0 +1,49 @@
+# Game Service v2.0 Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 8765
+  workers: 1
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "xiangqi"
+  password: "xiangqi"
+  dbname: "xiangqi"
+  min_pool_size: 5
+  max_pool_size: 20
+
+jwt:
+  secret: "your-jwt-secret-change-in-production"
+  algorithm: "HS256"
+  expire_hours: 168
+  refresh_expire_hours: 720
+
+game:
+  default_initial_time: 600    # 初始时间(秒)
+  default_increment: 10        # 每步增加时间(秒)
+  max_think_time: 300          # 最大思考时间(秒)
+  heartbeat_interval: 30       # 心跳间隔(秒)
+  heartbeat_timeout: 60        # 心跳超时(秒)
+
+match:
+  tick_interval: 2             # 匹配循环间隔(秒)
+  initial_elo_range: 200       # 初始 ELO 匹配范围
+  normal_elo_range: 100        # 正常 ELO 匹配范围
+  high_elo_range: 150          # 高分段 ELO 匹配范围
+  high_elo_threshold: 2000     # 高分段阈值
+  expand_rate: 50              # 每 30 秒扩展范围
+  expand_interval: 30          # 扩展间隔(秒)
+  max_wait_time: 180           # 最大等待时间(秒)
+
+ai:
+  default_difficulty: 3        # 默认难度(1-5)
+  max_threads: 4               # AI 推理线程池大小
+
+internal:
+  secret: "internal-service-secret-key"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

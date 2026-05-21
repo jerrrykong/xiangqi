@@ -1,7 +1,8 @@
 # 通用协议与数据结构设计
 
-> 所属服务：Web 服务 / Game 服务 / AI 服务（共用）
-> 文档版本：v1.0
+> 所属服务：Game 服务（统一）/ AI 服务（共用）
+> 文档版本：v2.0
+> 架构变更：所有客户端通信统一为 WebSocket 长连接，取消 HTTP REST API
 
 ---
 
@@ -310,7 +311,7 @@ class Difficulty(IntEnum):
 
 ---
 
-## 七、WebSocket 消息协议
+## 七、WebSocket 消息协议（v2.0 — 全 WebSocket 通信）
 
 ### 7.1 消息格式
 
@@ -328,53 +329,451 @@ class Difficulty(IntEnum):
 - `seq`：消息序列号，递增，用于消息顺序保证，非必填但推荐
 - `data`：消息数据，对象，必填（空对象 `{}` 也必须存在）
 
-### 7.2 客户端 → Game 服务（玩家操作）
+### 7.2 消息类型总览
 
-| type | data | 说明 |
-|---|---|---|
-| `move` | `{ "from": "e10", "to": "e9" }` | 玩家落子 |
-| `resign` | `{}` | 认输 |
-| `draw_req` | `{}` | 请求和棋 |
-| `draw_ans` | `{ "accept": true }` | 和棋应答 |
-| `chat` | `{ "content": "你好" }` | 聊天消息 |
-| `ping` | `{}` | 心跳 ping |
+```
+客户端 → 服务端消息类型：
+├── 认证
+│   ├── auth_login         登录
+│   ├── auth_register      注册
+│   ├── auth_token         Token 认证
+│   ├── auth_refresh       刷新 Token
+│   └── reconnect          断线重连
+├── 用户
+│   ├── user_get_me           获取个人信息
+│   ├── user_update_profile   修改个人信息
+│   ├── user_get_rankings     积分排行榜
+│   └── user_get_history      对局历史
+├── 房间
+│   ├── room_create        创建房间
+│   ├── room_list          房间列表
+│   ├── room_join          加入房间
+│   └── room_leave         离开房间
+├── 游戏（在房间中）
+│   ├── game_move          落子
+│   ├── game_resign        认输
+│   ├── game_draw_req      和棋请求
+│   └── game_draw_ans      和棋应答
+├── 匹配
+│   ├── match_join         加入匹配队列
+│   └── match_leave        离开匹配队列
+├── 管理后台
+│   ├── admin_users        用户列表
+│   ├── admin_ban          封禁用户
+│   ├── admin_stats        运营数据
+│   └── admin_models       模型列表
+└── 通用
+    └── ping               心跳
 
-### 7.3 Game 服务 → 客户端（状态推送）
+服务端 → 客户端消息类型：
+├── 认证
+│   ├── auth_result        认证结果
+│   └── kicked             被踢出（重复登录）
+├── 用户
+│   ├── user_me                个人信息
+│   ├── user_profile_updated   个人信息更新结果
+│   ├── user_rankings          排行榜
+│   ├── user_history           对局历史
+│   └── rating_update          积分变化通知
+├── 房间
+│   ├── room_created       房间已创建
+│   ├── room_list          房间列表
+│   └── room_start         房间开始游戏
+├── 游戏
+│   ├── game_start         对局开始
+│   ├── move_result        着法结果
+│   ├── ai_thinking        AI 思考中
+│   ├── ai_move            AI 落子
+│   ├── game_over          对局结束
+│   ├── draw_request       和棋请求
+│   ├── draw_answered      和棋应答
+│   ├── opponent_left      对手断线
+│   ├── opponent_rejoin    对手重连
+│   └── state_sync         状态同步（断线重连后）
+├── 匹配
+│   ├── match_queued       已加入队列
+│   ├── match_found        匹配成功
+│   └── match_left         已离开队列
+├── 管理后台
+│   ├── admin_users_result   用户列表结果
+│   ├── admin_ban_result     封禁结果
+│   ├── admin_stats_result   运营数据结果
+│   └── admin_models_result  模型列表结果
+├── 通用
+│   ├── pong               心跳回复
+│   └── error              错误通知
+```
 
-| type | data | 说明 |
-|---|---|---|
-| `game_start` | `{ "room_id": "...", "your_side": "red" }` | 对局开始 |
-| `move_result` | `{ "player": "red", "from": "e10", "to": "e9", "captured": 0, "check": false }` | 着法结果 |
-| `opponent_move` | `{ "player": "black", "from": "a0", "to": "a2", "captured": 0, "check": false }` | 对手落子通知（game_start 后的前两条） |
-| `game_over` | `{ "winner": "red", "result": 1, "reason": "checkmate" }` | 对局结束 |
-| `opponent_left` | `{ "reason": "disconnect", "timeout": 60 }` | 对手断线 |
-| `opponent_rejoin` | `{ "username": "player2" }` | 对手重连 |
-| `draw_request` | `{ "from": "black" }` | 收到和棋请求 |
-| `draw_answered` | `{ "from": "red", "accept": false }` | 和棋应答通知 |
-| `ai_thinking` | `{}` | AI 正在思考（人机对战） |
-| `ai_move` | `{ "from": "a0", "to": "a2", "captured": 0 }` | AI 落子 |
-| `timeout_warning` | `{ "remaining": 10 }` | 超时预警（剩余秒数） |
-| `error` | `{ "code": 4001, "message": "invalid move" }` | 错误通知 |
-| `pong` | `{}` | 心跳 pong |
-| `state_sync` | `{ "board": [...], "turn": "red", "move_no": 5, ... }` | 状态同步（断线重连后） |
+### 7.3 认证消息（详细）
 
-### 7.4 断线重连协议
+#### 客户端 → 服务端
+
+**auth_login — 登录**
+```json
+{ "type": "auth_login", "data": { "username": "player1", "password": "SecurePass123" } }
+```
+
+**auth_register — 注册**
+```json
+{ "type": "auth_register", "data": { "username": "player1", "password": "SecurePass123", "nickname": "象棋新手" } }
+```
+
+**auth_token — Token 认证**
+```json
+{ "type": "auth_token", "data": { "token": "eyJhbGciOiJIUzI1NiIs..." } }
+```
+
+**auth_refresh — 刷新 Token**
+```json
+{ "type": "auth_refresh", "data": {} }
+```
+
+**reconnect — 断线重连**
+```json
+{ "type": "reconnect", "data": { "session_token": "uuid", "room_id": "uuid" } }
+```
+
+#### 服务端 → 客户端
+
+**auth_result — 认证结果**
+```json
+// 成功
+{
+  "type": "auth_result",
+  "data": {
+    "success": true,
+    "user_id": 1,
+    "username": "player1",
+    "nickname": "象棋新手",
+    "rating": 1500,
+    "games_count": 0,
+    "token": "eyJhbGci...",
+    "expires_at": "2026-05-22T10:00:00Z",
+    "session_token": "uuid-for-reconnect"
+  }
+}
+// 失败
+{
+  "type": "auth_result",
+  "data": {
+    "success": false,
+    "error": "invalid_credentials"   // invalid_credentials / username_exists / token_invalid / user_banned
+  }
+}
+```
+
+**kicked — 被踢出（重复登录）**
+```json
+{ "type": "kicked", "data": { "reason": "duplicate_login" } }
+```
+
+### 7.4 用户消息（详细）
+
+**user_get_me → user_me**
+```json
+// 请求
+{ "type": "user_get_me", "data": {} }
+// 响应
+{
+  "type": "user_me",
+  "data": {
+    "user_id": 1,
+    "username": "player1",
+    "nickname": "象棋新手",
+    "avatar": "https://...",
+    "rating": 1580,
+    "games_count": 25,
+    "created_at": "2026-05-01T10:00:00Z"
+  }
+}
+```
+
+**user_get_rankings → user_rankings**
+```json
+// 请求
+{ "type": "user_get_rankings", "data": { "page": 1, "page_size": 20 } }
+// 响应
+{
+  "type": "user_rankings",
+  "data": {
+    "total": 1234,
+    "page": 1,
+    "page_size": 20,
+    "rankings": [
+      { "rank": 1, "user_id": 5, "username": "master", "rating": 2100, "games_count": 500 }
+    ]
+  }
+}
+```
+
+**user_get_history → user_history**
+```json
+// 请求
+{ "type": "user_get_history", "data": { "page": 1, "page_size": 20, "type": "pvp" } }
+// 响应
+{
+  "type": "user_history",
+  "data": {
+    "total": 50,
+    "history": [
+      {
+        "game_id": "uuid",
+        "result": "win",
+        "my_side": "red",
+        "opponent": { "user_id": 2, "username": "player2", "rating": 1550 },
+        "rating_change": 15,
+        "total_moves": 82,
+        "played_at": "2026-05-12T14:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+**rating_update — 积分变化通知（对局结束后推送）**
+```json
+{
+  "type": "rating_update",
+  "data": { "change": 15, "new_rating": 1515, "game_id": "uuid" }
+}
+```
+
+### 7.5 房间消息（详细）
+
+**room_create → room_created**
+```json
+// 请求
+{ "type": "room_create", "data": {} }
+// 响应
+{
+  "type": "room_created",
+  "data": {
+    "room_id": "uuid",
+    "your_side": "red",
+    "status": "waiting"
+  }
+}
+```
+
+**room_list → room_list**
+```json
+// 请求
+{ "type": "room_list", "data": {} }
+// 响应
+{
+  "type": "room_list",
+  "data": {
+    "rooms": [
+      {
+        "room_id": "uuid",
+        "red_player": { "user_id": 2, "username": "player2", "rating": 1550 },
+        "created_at": "2026-05-12T14:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+**room_join — 加入房间**
+```json
+// 请求
+{ "type": "room_join", "data": { "room_id": "uuid" } }
+// 加入后由 RoomManager 广播 game_start（见 7.6）
+```
+
+**room_leave — 离开房间**
+```json
+{ "type": "room_leave", "data": {} }
+```
+
+### 7.6 游戏消息（详细）
+
+**game_start — 对局开始（服务端推送）**
+```json
+{
+  "type": "game_start",
+  "data": {
+    "room_id": "uuid",
+    "game_type": "pvp",
+    "your_side": "red",
+    "opponent": { "user_id": 2, "username": "player2", "rating": 1550 }
+  }
+}
+```
+
+**game_move — 玩家落子**
+```json
+{ "type": "game_move", "data": { "from": "e10", "to": "e9" } }
+```
+
+**move_result — 着法结果（服务端推送）**
+```json
+{
+  "type": "move_result",
+  "data": {
+    "player": "red",
+    "from": "e10",
+    "to": "e9",
+    "captured": 0,
+    "move_no": 1,
+    "check": false
+  }
+}
+```
+
+**ai_thinking / ai_move — AI 对局**
+```json
+{ "type": "ai_thinking", "data": {} }
+{ "type": "ai_move", "data": { "from": "a0", "to": "a2", "captured": 0, "move_no": 2 } }
+```
+
+**game_over — 对局结束（服务端推送）**
+```json
+{
+  "type": "game_over",
+  "data": {
+    "room_id": "uuid",
+    "winner": "red",
+    "result": 1,
+    "reason": "checkmate",
+    "total_moves": 82
+  }
+}
+```
+
+**game_resign / game_draw_req / game_draw_ans**
+```json
+{ "type": "game_resign", "data": {} }
+{ "type": "game_draw_req", "data": {} }
+{ "type": "game_draw_ans", "data": { "accept": true } }
+```
+
+**draw_request — 和棋请求通知（服务端推送）**
+```json
+{ "type": "draw_request", "data": { "from": "black" } }
+```
+
+**draw_answered — 和棋应答通知（服务端推送）**
+```json
+{ "type": "draw_answered", "data": { "from": "red", "accept": false } }
+```
+
+**opponent_left / opponent_rejoin**
+```json
+{ "type": "opponent_left", "data": { "reason": "disconnect", "timeout": 60 } }
+{ "type": "opponent_rejoin", "data": { "username": "player2" } }
+```
+
+**state_sync — 完整状态同步（断线重连后推送）**
+```json
+{
+  "type": "state_sync",
+  "data": {
+    "room_id": "uuid",
+    "board": [[14,13,...],[0,...],...],
+    "current_turn": "red",
+    "move_no": 15,
+    "result": 0,
+    "move_history": ["e10e9","a0a2",...],
+    "your_side": "red",
+    "remaining_time": 45
+  }
+}
+```
+
+### 7.7 匹配消息（详细）
+
+**match_join → match_queued / match_found**
+```json
+// 请求
+{ "type": "match_join", "data": {} }
+// 已加入队列
+{
+  "type": "match_queued",
+  "data": { "status": "queued", "rating": 1500 }
+}
+// 匹配成功（服务端推送）
+{
+  "type": "match_found",
+  "data": {
+    "room_id": "uuid",
+    "your_side": "red",
+    "opponent": { "user_id": 2, "username": "player2", "rating": 1520 }
+  }
+}
+```
+
+**match_leave → match_left**
+```json
+// 请求
+{ "type": "match_leave", "data": {} }
+// 响应
+{ "type": "match_left", "data": { "status": "left" } }
+```
+
+### 7.8 管理后台消息（详细）
+
+**admin_users → admin_users_result**
+```json
+{ "type": "admin_users", "data": { "page": 1, "page_size": 20, "search": "" } }
+```
+
+**admin_ban → admin_ban_result**
+```json
+{ "type": "admin_ban", "data": { "user_id": 5, "banned": true, "reason": "使用外挂" } }
+```
+
+**admin_stats → admin_stats_result**
+```json
+{ "type": "admin_stats", "data": {} }
+```
+
+**admin_models → admin_models_result**
+```json
+{ "type": "admin_models", "data": {} }
+```
+
+### 7.9 通用消息
+
+**ping / pong**
+```json
+{ "type": "ping", "data": {} }
+{ "type": "pong", "data": {} }
+```
+
+**error — 错误通知**
+```json
+{ "type": "error", "data": { "code": 3007, "message": "invalid move" } }
+```
+
+### 7.10 断线重连协议
 
 ```
 1. 客户端断线，保留 session_token 和 room_id
 2. 客户端重连，发送：
-   { "type": "reconnect", "data": { "token": "...", "room_id": "..." } }
-3. Game 服务验证：
-   - token 有效 → 房间仍在进行 → 返回 state_sync（完整状态）
-   - token 无效或房间已结束 → 返回 error { code: 4003 }
+   { "type": "reconnect", "data": { "session_token": "...", "room_id": "..." } }
+3. 服务端验证：
+   - session_token 有效 → 房间仍在 PLAYING → 返回 state_sync
+   - session_token 无效或房间已结束 → 返回 error { code: 4003 }
 4. 客户端收到 state_sync 后恢复棋盘 UI
+5. 重连超时 60s → 判负 → 对手收到 game_over
 ```
 
 ---
 
-## 八、HTTP API 协议
+## 八、HTTP API 协议（仅保留健康检查）
 
-### 8.1 统一响应格式
+> v2.0 架构取消 HTTP REST API，所有客户端通信通过 WebSocket 完成。
+> 以下 HTTP 端点仅用于运维和内部调用。
+
+### 8.1 健康检查
+
+```
+GET /health
+→ { "status": "ok", "online_users": 45, "active_rooms": 12, "match_queue_size": 5 }
+```
+
+### 8.2 统一响应格式（v1.0 兼容，过渡期使用）
 
 ```json
 {
@@ -599,67 +998,42 @@ def idx_to_move(idx: int) -> Move:
 
 ## 十二、服务间通信协议
 
-### 12.1 Web 服务 → Game 服务（HTTP 回调）
+> v2.0 架构中，Game 服务是统一服务，不再有 Web→Game 的服务间通信。
+> 对局结果直接写入数据库，无需 HTTP 回调。
+
+### 12.1 Game 服务内部（无服务间调用）
+
+```
+所有业务逻辑在 Game 服务内部完成：
+- 房间创建、匹配、对局、结算 → RoomManager
+- ELO 积分更新 → EloService（直接写 DB）
+- 对局记录保存 → 直接写 DB
+
+无需 HTTP 回调，无需 gRPC
+```
+
+### 12.2 训练服务 → Game 服务（模型热加载通知）
+
+训练服务完成新模型训练后，通过信号文件或 HTTP 通知 Game 服务热加载模型：
+
+```http
+POST /internal/model/reload
+Content-Type: application/json
+X-Internal-Key: {INTERNAL_SECRET}
+
+{
+  "model_path": "./models/v1.2.3.pt",
+  "version": "v1.2.3",
+  "elo_score": 2850
+}
+```
+
+### 12.3 旧 Web 服务通信（过渡期，验证后移除）
 
 ```http
 POST /internal/game/assign
 Content-Type: application/json
 X-Internal-Key: {INTERNAL_SECRET}
 
-{
-  "room_id": "uuid",
-  "game_type": "pvp",
-  "players": [
-    { "user_id": 1, "username": "red_player", "side": "red", "ws_session": "uuid1" },
-    { "user_id": 2, "username": "black_player", "side": "black", "ws_session": "uuid2" }
-  ],
-  "callback_url": "http://web-service:8080/internal/game/result"
-}
-```
-
-### 12.2 Game 服务 → Web 服务（对局结束回调）
-
-```http
-POST {callback_url}
-Content-Type: application/json
-X-Internal-Key: {INTERNAL_SECRET}
-
-{
-  "room_id": "uuid",
-  "game_id": "uuid",
-  "result": 1,
-  "winner": "red",
-  "red_user_id": 1,
-  "black_user_id": 2,
-  "total_moves": 82,
-  "duration_seconds": 1800,
-  "pve_level": null
-}
-```
-
-### 12.3 内部 RPC（可选，gRPC）
-
-```protobuf
-syntax = "proto3";
-
-service GameService {
-    rpc AssignGame(AssignRequest) returns (AssignResponse);
-    rpc ReportResult(GameResultRequest) returns (google.protobuf.Empty);
-    rpc GetGameState(GameStateRequest) returns (GameStateResponse);
-    rpc AIMove(AIMoveRequest) returns (AIMoveResponse);
-}
-
-message AssignRequest {
-    string room_id = 1;
-    string game_type = 2;  // "pvp" / "pve"
-    repeated Player players = 3;
-    int32 difficulty = 4;   // 1-5, PvE only
-    string callback_url = 5;
-}
-
-message AIMoveRequest {
-    string room_id = 1;
-    int32 board_state = 2;  // serialized board
-    int32 difficulty = 3;
-}
+⚠️ 过渡期使用，新服务完成后移除
 ```

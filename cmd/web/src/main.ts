@@ -6,7 +6,6 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'
-import { useAuthStore } from './stores/auth'
 import './styles/main.css'
 
 const app = createApp(App)
@@ -21,8 +20,7 @@ app.use(pinia)
 app.use(router)
 app.use(ElementPlus)
 
-// 初始化认证状态
-const authStore = useAuthStore()
-authStore.init()
+// 注意: authStore.init() 已移到 App.vue 的 onMounted 中
+// 因为需要先注册 WS 消息处理器，再建立连接
 
 app.mount('#app')

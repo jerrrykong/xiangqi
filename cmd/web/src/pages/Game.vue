@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
 import { useGameStore } from '@/stores/game'
-import { wsManager } from '@/api/websocket'
+import { wsClient } from '@/ws/client'
 import ChessBoard from '@/components/ChessBoard.vue'
 import type { Position, Move } from '@/types/chess'
 
@@ -17,88 +17,17 @@ const gameStore = useGameStore()
 
 const roomId = computed(() => route.params.id as string)
 
-// 连接失败状态
-const showConnectionError = ref(false)
-const reconnecting = ref(false)
-
-// 监听 WebSocket 连接状态
-watch(() => wsManager.connectionState.value, (state) => {
-  // 如果连接失败（重连次数用尽或错误状态）
-  if (state === 'error' || (state === 'disconnected' && gameStore.board.length === 0)) {
-    // 等待一下，确认不是暂时的断开
-    setTimeout(() => {
-      if (!wsManager.isConnected.value && gameStore.board.length === 0) {
-        showConnectionError.value = true
-      }
-    }, 3000) // 等待3秒，给重连机制时间
+// 初始化游戏 — 不再建立独立 WS，全局 WS 已连接
+onMounted(() => {
+  // 如果游戏未开始但已有房间，说明正在等待 game_start 推送
+  if (!gameStore.isGameStarted) {
+    // game_start 推送会通过消息路由触发 gameStore.handleGameStart
   }
 })
-
-// 初始化游戏
-onMounted(async () => {
-  // 获取房间信息和 WebSocket 连接
-  if (!roomStore.currentRoom || roomStore.currentRoom.roomId !== roomId.value) {
-    try {
-      await roomStore.restoreRoom(roomId.value)
-    } catch (error) {
-      ElMessage.error('无法加入房间')
-      router.push('/lobby')
-      return
-    }
-  }
-
-  // 如果房间不是 playing 状态，跳转回房间页面
-  if (roomStore.currentRoom?.status !== 'playing') {
-    ElMessage.info('游戏尚未开始')
-    router.push(`/room/${roomId.value}`)
-    return
-  }
-
-  // 连接游戏 WebSocket
-  if (roomStore.currentRoom?.gameWsUrl && roomStore.currentRoom?.gameToken) {
-    gameStore.connect(roomStore.currentRoom.gameWsUrl, roomStore.currentRoom.gameToken)
-  } else {
-    ElMessage.error('游戏连接信息不完整')
-    router.push('/lobby')
-  }
-})
-
-// 重新连接
-async function handleReconnect() {
-  reconnecting.value = true
-  showConnectionError.value = false
-
-  try {
-    // 重新获取房间信息（可能已更新）
-    await roomStore.restoreRoom(roomId.value)
-
-    if (roomStore.currentRoom?.gameWsUrl && roomStore.currentRoom?.gameToken) {
-      // 断开现有连接
-      wsManager.disconnect()
-      // 重新连接
-      gameStore.connect(roomStore.currentRoom.gameWsUrl, roomStore.currentRoom.gameToken)
-      ElMessage.success('正在重新连接...')
-    } else {
-      ElMessage.error('无法获取游戏连接信息')
-      router.push('/lobby')
-    }
-  } catch (error) {
-    ElMessage.error('重新连接失败')
-    router.push('/lobby')
-  } finally {
-    reconnecting.value = false
-  }
-}
-
-// 强制返回大厅
-function handleForceLeave() {
-  wsManager.disconnect()
-  roomStore.clearRoom()
-  router.push('/lobby')
-}
 
 onUnmounted(() => {
-  gameStore.disconnect()
+  // 不再 disconnect WS，全局 WS 保持连接
+  gameStore.resetGame()
 })
 
 // 格式化时间
@@ -119,7 +48,6 @@ function handlePositionClick(position: Position) {
 
   const { selectedPosition } = gameStore
   if (selectedPosition) {
-    // 发送走棋
     const move: Move = {
       from_col: selectedPosition.col,
       from_row: selectedPosition.row,
@@ -146,6 +74,11 @@ function handleDrawRequest() {
   ElMessage.info('已发送和棋请求')
 }
 
+// 回应和棋
+function handleDrawAnswer(accept: boolean) {
+  gameStore.sendDrawAnswer(accept)
+}
+
 // 返回大厅
 function handleBack() {
   ElMessageBox.confirm('确定要返回大厅吗？当前对局将被判负', '警告', {
@@ -163,21 +96,38 @@ const resultDescription = computed(() => {
   if (!gameStore.gameResult) return ''
 
   const isWin =
-    (gameStore.gameResult === 'RED_WINS' && gameStore.yourColor === 0) ||
-    (gameStore.gameResult === 'BLACK_WINS' && gameStore.yourColor === 1)
+    (gameStore.gameResult === 'red' && gameStore.yourColor === 0) ||
+    (gameStore.gameResult === 'black' && gameStore.yourColor === 1)
+
+  const isDraw = gameStore.gameResult === 'draw'
+
+  if (isDraw) return '和棋'
 
   const resultText = isWin ? '胜利' : '失败'
 
   const reasonText =
-    gameStore.gameReason === 'CHECKMATE'
+    gameStore.gameReason === 'checkmate'
       ? '将死'
-      : gameStore.gameReason === 'RESIGN'
-      ? '对手认输'
-      : gameStore.gameReason === 'TIMEOUT'
-      ? '超时'
-      : ''
+      : gameStore.gameReason === 'resign'
+        ? '认输'
+        : gameStore.gameReason === 'timeout'
+          ? '超时'
+          : gameStore.gameReason === 'disconnect'
+            ? '断线'
+            : gameStore.gameReason === 'draw'
+              ? '和棋'
+              : ''
 
   return `${resultText} - ${reasonText}`
+})
+
+// 对手信息
+const opponentName = computed(() => {
+  if (!roomStore.currentRoom?.opponent) {
+    // PvE 模式
+    return roomStore.currentRoom?.roomType === 'pve' ? 'AI' : '等待中'
+  }
+  return roomStore.currentRoom.opponent.username
 })
 </script>
 
@@ -198,6 +148,18 @@ const resultDescription = computed(() => {
       </div>
     </header>
 
+    <!-- WS 连接状态提示 -->
+    <div v-if="wsClient.connectionState.value !== 'connected'" class="connection-banner">
+      <div class="loading-spinner-small"></div>
+      <span>{{ wsClient.connectionState.value === 'connecting' ? '正在重连...' : '连接已断开' }}</span>
+    </div>
+
+    <!-- AI 思考提示 -->
+    <div v-if="gameStore.isAIThinking" class="ai-thinking-banner">
+      <div class="loading-spinner-small"></div>
+      <span>AI 正在思考...</span>
+    </div>
+
     <!-- 游戏主区域 -->
     <main class="game-main">
       <div class="game-container">
@@ -206,7 +168,7 @@ const resultDescription = computed(() => {
           <div class="player-card">
             <div class="player-avatar black">黑</div>
             <div class="player-info">
-              <div class="player-name">{{ gameStore.yourColor === 1 ? authStore.user?.nickname : roomStore.currentRoom?.opponent?.username || '等待中' }}</div>
+              <div class="player-name">{{ gameStore.yourColor === 1 ? authStore.user?.nickname : opponentName }}</div>
               <div class="player-label">{{ gameStore.yourColor === 1 ? '你' : '对手' }}</div>
             </div>
           </div>
@@ -237,7 +199,7 @@ const resultDescription = computed(() => {
           <div class="player-card">
             <div class="player-avatar red">红</div>
             <div class="player-info">
-              <div class="player-name">{{ gameStore.yourColor === 0 ? authStore.user?.nickname : roomStore.currentRoom?.opponent?.username || '等待中' }}</div>
+              <div class="player-name">{{ gameStore.yourColor === 0 ? authStore.user?.nickname : opponentName }}</div>
               <div class="player-label">{{ gameStore.yourColor === 0 ? '你' : '对手' }}</div>
             </div>
           </div>
@@ -267,12 +229,9 @@ const resultDescription = computed(() => {
       :show-close="false"
     >
       <div class="result-dialog">
-        <div class="result-emoji">{{ gameStore.winner === gameStore.yourColor ? '🎉' : '😔' }}</div>
-        <div class="result-text" :class="gameStore.winner === gameStore.yourColor ? 'win' : 'lose'">
+        <div class="result-emoji">{{ gameStore.winner === gameStore.yourColor ? '🎉' : gameStore.winner === -1 ? '🤝' : '😔' }}</div>
+        <div class="result-text" :class="gameStore.winner === gameStore.yourColor ? 'win' : gameStore.winner === -1 ? 'draw' : 'lose'">
           {{ resultDescription }}
-        </div>
-        <div class="result-reason">
-          {{ gameStore.gameReason === 'CHECKMATE' ? '对方无子可走' : gameStore.gameReason === 'RESIGN' ? '对手认输' : '对局结束' }}
         </div>
       </div>
       <template #footer>
@@ -280,27 +239,20 @@ const resultDescription = computed(() => {
       </template>
     </el-dialog>
 
-    <!-- 连接失败弹窗 -->
+    <!-- 求和请求弹窗 -->
     <el-dialog
-      v-model="showConnectionError"
-      title="连接失败"
+      :model-value="!!gameStore.drawRequestFrom"
+      title="和棋请求"
       width="400px"
       :close-on-click-modal="false"
       :show-close="false"
     >
-      <div class="connection-error-dialog">
-        <div class="error-icon">⚠️</div>
-        <div class="error-message">
-          无法连接到对局服务，请检查网络连接后重试。
-        </div>
+      <div class="draw-dialog">
+        <p>{{ gameStore.drawRequestFrom }} 请求和棋，是否同意？</p>
       </div>
       <template #footer>
-        <div class="connection-error-footer">
-          <el-button @click="handleForceLeave" :disabled="reconnecting">返回大厅</el-button>
-          <el-button type="primary" @click="handleReconnect" :loading="reconnecting">
-            重新连接
-          </el-button>
-        </div>
+        <el-button @click="handleDrawAnswer(false)">拒绝</el-button>
+        <el-button type="primary" @click="handleDrawAnswer(true)">同意</el-button>
       </template>
     </el-dialog>
   </div>
@@ -350,6 +302,39 @@ const resultDescription = computed(() => {
   font-weight: bold;
 }
 
+.connection-banner,
+.ai-thinking-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 0.875rem;
+}
+
+.connection-banner {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.ai-thinking-banner {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.loading-spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .game-main {
   flex: 1;
   display: flex;
@@ -385,13 +370,8 @@ const resultDescription = computed(() => {
   }
 }
 
-.side-panel.left {
-  order: 1;
-}
-
-.side-panel.right {
-  order: 3;
-}
+.side-panel.left { order: 1; }
+.side-panel.right { order: 3; }
 
 .board-container {
   position: relative;
@@ -423,42 +403,15 @@ const resultDescription = computed(() => {
   font-weight: bold;
 }
 
-.player-avatar.black {
-  background: var(--color-piece-black);
-}
+.player-avatar.black { background: var(--color-piece-black); }
+.player-avatar.red { background: var(--color-piece-red); }
+.player-name { font-weight: 500; color: #1f2937; }
+.player-label { font-size: 0.875rem; color: #6b7280; }
 
-.player-avatar.red {
-  background: var(--color-piece-red);
-}
-
-.player-name {
-  font-weight: 500;
-  color: #1f2937;
-}
-
-.player-label {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
-
-.timer-card {
-  text-align: center;
-}
-
-.timer-value {
-  font-size: 2rem;
-  font-weight: bold;
-  color: #1f2937;
-}
-
-.timer-value.red {
-  color: var(--color-piece-red);
-}
-
-.timer-label {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
+.timer-card { text-align: center; }
+.timer-value { font-size: 2rem; font-weight: bold; color: #1f2937; }
+.timer-value.red { color: var(--color-piece-red); }
+.timer-label { font-size: 0.875rem; color: #6b7280; }
 
 .check-alert {
   position: absolute;
@@ -498,10 +451,7 @@ const resultDescription = computed(() => {
   padding: 24px 0;
 }
 
-.result-emoji {
-  font-size: 4rem;
-  margin-bottom: 16px;
-}
+.result-emoji { font-size: 4rem; margin-bottom: 16px; }
 
 .result-text {
   font-size: 1.5rem;
@@ -509,41 +459,14 @@ const resultDescription = computed(() => {
   margin-bottom: 8px;
 }
 
-.result-text.win {
-  color: #22c55e;
-}
+.result-text.win { color: #22c55e; }
+.result-text.lose { color: #ef4444; }
+.result-text.draw { color: #eab308; }
 
-.result-text.lose {
-  color: #ef4444;
-}
+.full-width { width: 100%; }
 
-.result-reason {
-  color: #6b7280;
-}
-
-.full-width {
-  width: 100%;
-}
-
-.connection-error-dialog {
+.draw-dialog {
   text-align: center;
-  padding: 24px 0;
-}
-
-.error-icon {
-  font-size: 4rem;
-  margin-bottom: 16px;
-}
-
-.error-message {
-  color: #6b7280;
-  font-size: 1rem;
-  line-height: 1.5;
-}
-
-.connection-error-footer {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
+  padding: 16px 0;
 }
 </style>

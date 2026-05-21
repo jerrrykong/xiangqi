@@ -63,8 +63,7 @@ async function handleRegister() {
     ElMessage.success('注册成功，请登录')
     router.push('/login')
   } catch (error: any) {
-    const message = error.response?.data?.message || '注册失败'
-    ElMessage.error(message)
+    ElMessage.error(error.message || '注册失败')
   } finally {
     isLoading.value = false
   }
@@ -76,6 +75,12 @@ async function handleRegister() {
     <div class="auth-card card">
       <h1 class="auth-title">中国象棋</h1>
       <p class="auth-subtitle">用户注册</p>
+
+      <!-- WS 连接状态提示 -->
+      <div v-if="authStore.connectionState !== 'connected'" class="connection-status">
+        <div class="loading-spinner-small"></div>
+        <span>{{ authStore.connectionState === 'connecting' ? '正在连接服务器...' : '连接已断开，正在重连...' }}</span>
+      </div>
 
       <el-form
         ref="formRef"
@@ -130,6 +135,7 @@ async function handleRegister() {
             size="large"
             class="full-width"
             :loading="isLoading"
+            :disabled="authStore.connectionState !== 'connected'"
             native-type="submit"
           >
             注册
@@ -189,6 +195,32 @@ async function handleRegister() {
 
 .form-actions {
   margin-top: 24px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.875rem;
+  color: #3b82f6;
+}
+
+.loading-spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .auth-footer {

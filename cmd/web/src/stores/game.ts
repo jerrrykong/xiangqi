@@ -1,11 +1,22 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import type { Position, Move } from '@/types/chess'
 import { getInitialBoard, Color } from '@/types/chess'
-import type { ServerMessage, StateSyncMessage, GameStartMessage } from '@/types/websocket'
-import wsManager from '@/api/websocket'
-import { MsgType } from '@/types/websocket'
+import { moveToPos, posToMove } from '@/types/chess'
+import type {
+  GameStartData,
+  MoveResultData,
+  OpponentMoveData,
+  AIMoveData,
+  GameOverData,
+  StateSyncData,
+  DrawRequestData,
+  DrawResultData,
+} from '@/ws/types'
+import { wsClient } from '@/ws/client'
+import { WSMsgType } from '@/ws/types'
 import { useAuthStore } from './auth'
+import { useRoomStore } from './room'
 
 export const useGameStore = defineStore('game', () => {
   // 棋盘状态
@@ -20,14 +31,12 @@ export const useGameStore = defineStore('game', () => {
   // 游戏状态
   const isGameStarted = ref(false)
   const isGameOver = ref(false)
-  const gameResult = ref<string | null>(null)
+  const gameResult = ref<string | null>(null) // 'red' | 'black' | 'draw'
   const gameReason = ref<string | null>(null)
-  const winner = ref<number | null>(null)
+  const winner = ref<number | null>(null) // 0=红, 1=黑, -1=和
 
   // 房间信息
   const roomId = ref<string | null>(null)
-  const gameWsUrl = ref<string | null>(null)
-  const gameToken = ref<string | null>(null)
 
   // UI 状态
   const selectedPosition = ref<Position | null>(null)
@@ -35,6 +44,10 @@ export const useGameStore = defineStore('game', () => {
   const lastMove = ref<Move | null>(null)
   const isInCheck = ref(false)
   const checkPosition = ref<Position | null>(null)
+  const isAIThinking = ref(false)
+
+  // 求和请求
+  const drawRequestFrom = ref<string | null>(null)
 
   // 计时器
   let timerInterval: number | null = null
@@ -46,150 +59,43 @@ export const useGameStore = defineStore('game', () => {
 
   const opponentColorName = computed(() => (yourColor.value === Color.Red ? '黑方' : '红方'))
 
-  // WebSocket 回调设置
-  function setWebSocketCallbacks() {
-    wsManager.setCallbacks({
-      onGameStart: handleGameStart,
-      onStateSync: handleStateSync,
-      onOpponentMove: handleOpponentMove,
-      onGameOver: handleGameOver,
-      onCheck: handleCheck,
-      onError: handleError,
-      onDisconnect: handleDisconnect,
-    })
-  }
-
-  // 连接游戏 WebSocket
-  function connect(wsUrl: string, token: string) {
-    gameWsUrl.value = wsUrl
-    gameToken.value = token
-    setWebSocketCallbacks()
-
-    // wsUrl 可能已包含 ?token=...，追加 user_id 时需判断分隔符
-    const authStore = useAuthStore()
-    const userId = authStore.user?.user_id
-    let finalUrl = wsUrl
-    if (userId) {
-      const sep = wsUrl.includes('?') ? '&' : '?'
-      finalUrl = `${wsUrl}${sep}user_id=${userId}`
-    }
-    wsManager.connectRaw(finalUrl, token)
-  }
-
-  // 断开连接
-  function disconnect() {
-    stopTimer()
-    wsManager.disconnect()
-    resetGame()
-  }
-
-  // 处理游戏开始
-  function handleGameStart(data: GameStartMessage) {
-    roomId.value = data.room_id
-    yourColor.value = data.your_color as 0 | 1
-    redTime.value = data.red_time
-    blackTime.value = data.black_time
-    currentTurn.value = 0 // 红方先手
-    isGameStarted.value = true
-    isGameOver.value = false
-    startTimer()
-  }
-
-  // 处理状态同步
-  function handleStateSync(data: StateSyncMessage) {
-    board.value = data.board
-    currentTurn.value = data.turn as 0 | 1
-    redTime.value = data.red_time
-    blackTime.value = data.black_time
-    roomId.value = data.room_id
-    yourColor.value = data.your_color as 0 | 1
-  }
-
-  // 处理对手走棋
-  function handleOpponentMove(data: { move: Move; red_time: number; black_time: number }) {
-    const { move, red_time, black_time } = data
-    // 更新棋盘
-    board.value[move.to_row][move.to_col] = board.value[move.from_row][move.from_col]
-    board.value[move.from_row][move.from_col] = -1
-    lastMove.value = move
-    currentTurn.value = currentTurn.value === 0 ? 1 : 0
-    redTime.value = red_time
-    blackTime.value = black_time
-  }
-
-  // 处理游戏结束
-  function handleGameOver(data: {
-    result: string
-    reason: string
-    winner: number
-  }) {
-    isGameOver.value = true
-    gameResult.value = data.result
-    gameReason.value = data.reason
-    winner.value = data.winner
-    stopTimer()
-  }
-
-  // 处理将军
-  function handleCheck(data: {
-    from_row: number
-    from_col: number
-    to_row: number
-    to_col: number
-  }) {
-    isInCheck.value = true
-    checkPosition.value = { row: data.to_row, col: data.to_col }
-  }
-
-  // 处理错误
-  function handleError(data: { code: number; message: string }) {
-    // Defensive check - if data is undefined or malformed, log and return
-    if (!data || data.code === undefined || data.message === undefined) {
-      console.error('Game error (malformed):', data)
-      return
-    }
-    console.error('Game error:', data.code, data.message)
-  }
-
-  // 处理断开连接
-  function handleDisconnect() {
-    console.log('WebSocket disconnected')
-  }
+  // ===== 游戏操作 =====
 
   // 发送走棋
   function sendMove(move: Move) {
-    wsManager.send({
-      type: MsgType.Move,
-      move,
-    })
-    // 本地更新棋盘
-    board.value[move.to_row][move.to_col] = board.value[move.from_row][move.from_col]
-    board.value[move.from_row][move.from_col] = -1
-    lastMove.value = move
+    const { from_pos, to_pos } = moveToPos(move)
+    wsClient.request(WSMsgType.GAME_MOVE, { from_pos, to_pos })
+      .then((result: MoveResultData) => {
+        if (result.success) {
+          // 服务端确认走棋成功，更新本地棋盘
+          board.value[move.to_row][move.to_col] = board.value[move.from_row][move.from_col]
+          board.value[move.from_row][move.from_col] = -1
+          lastMove.value = move
+          currentTurn.value = currentTurn.value === 0 ? 1 : 0
+        }
+      })
+      .catch((err) => {
+        console.error('[Game] Move failed:', err.message)
+      })
+
     selectedPosition.value = null
     validMoves.value = []
   }
 
   // 发送认输
   function sendResign() {
-    wsManager.send({
-      type: MsgType.Resign,
-    })
+    wsClient.send({ type: WSMsgType.GAME_RESIGN, seq: 0, data: {} })
   }
 
   // 请求和棋
   function sendDrawRequest() {
-    wsManager.send({
-      type: MsgType.DrawReq,
-    })
+    wsClient.send({ type: WSMsgType.GAME_DRAW_REQ, seq: 0, data: {} })
   }
 
   // 回应和棋
   function sendDrawAnswer(accept: boolean) {
-    wsManager.send({
-      type: MsgType.DrawAns,
-      accept,
-    })
+    wsClient.send({ type: WSMsgType.GAME_DRAW_ANS, seq: 0, data: { accept } })
+    drawRequestFrom.value = null
   }
 
   // 选择棋子
@@ -204,7 +110,6 @@ export const useGameStore = defineStore('game', () => {
     if (pieceColor !== yourColor.value) return
 
     selectedPosition.value = position
-    // TODO: 计算合法走法
     validMoves.value = []
   }
 
@@ -214,7 +119,110 @@ export const useGameStore = defineStore('game', () => {
     validMoves.value = []
   }
 
-  // 计时器
+  // ===== 推送消息处理 =====
+
+  // 处理游戏开始
+  function handleGameStart(data: GameStartData) {
+    roomId.value = data.room_id
+    board.value = getInitialBoard() // 从 FEN 或使用初始棋盘
+    const authStore = useAuthStore()
+    const userId = authStore.user?.user_id
+    yourColor.value = data.red_player.user_id === userId ? 0 : 1
+    redTime.value = data.initial_time
+    blackTime.value = data.initial_time
+    currentTurn.value = 0 // 红方先手
+    isGameStarted.value = true
+    isGameOver.value = false
+    isAIThinking.value = false
+    drawRequestFrom.value = null
+    startTimer()
+  }
+
+  // 处理走棋结果 (自己的走棋确认)
+  function handleMoveResult(data: MoveResultData) {
+    if (data.success) {
+      // 走棋已确认（本地已在 sendMove 中更新）
+    } else {
+      // 走棋失败，可能需要回滚
+      console.warn('[Game] Move rejected:', data.message)
+    }
+  }
+
+  // 处理对手走棋
+  function handleOpponentMove(data: OpponentMoveData) {
+    const move = posToMove(data.from_pos, data.to_pos)
+    board.value[move.to_row][move.to_col] = board.value[move.from_row][move.from_col]
+    board.value[move.from_row][move.from_col] = -1
+    lastMove.value = move
+    currentTurn.value = currentTurn.value === 0 ? 1 : 0
+    isInCheck.value = false
+  }
+
+  // 处理 AI 思考中
+  function handleAIThinking() {
+    isAIThinking.value = true
+  }
+
+  // 处理 AI 走棋
+  function handleAIMove(data: AIMoveData) {
+    isAIThinking.value = false
+    const move = posToMove(data.from_pos, data.to_pos)
+    board.value[move.to_row][move.to_col] = board.value[move.from_row][move.from_col]
+    board.value[move.from_row][move.from_col] = -1
+    lastMove.value = move
+    currentTurn.value = currentTurn.value === 0 ? 1 : 0
+    isInCheck.value = false
+  }
+
+  // 处理游戏结束
+  function handleGameOver(data: GameOverData) {
+    isGameOver.value = true
+    gameResult.value = data.winner // 'red' / 'black' / 'draw'
+    gameReason.value = data.reason
+    winner.value = data.winner === 'red' ? 0 : data.winner === 'black' ? 1 : -1
+    isAIThinking.value = false
+    stopTimer()
+  }
+
+  // 处理求和请求
+  function handleDrawRequest(data: DrawRequestData) {
+    drawRequestFrom.value = data.from_username
+  }
+
+  // 处理求和结果
+  function handleDrawResult(data: DrawResultData) {
+    drawRequestFrom.value = null
+    if (data.accepted) {
+      // 和棋已被接受，等待 game_over 推送
+    }
+  }
+
+  // 处理状态同步 (断线重连)
+  function handleStateSync(data: StateSyncData) {
+    roomId.value = data.room_id
+    yourColor.value = data.your_side === 'red' ? 0 : 1
+    redTime.value = data.red_remaining_time
+    blackTime.value = data.black_remaining_time
+
+    // 更新房间状态
+    const roomStore = useRoomStore()
+    if (roomStore.currentRoom) {
+      roomStore.currentRoom.phase = data.phase
+    }
+
+    isGameStarted.value = data.phase === 'playing'
+    isGameOver.value = false
+    isAIThinking.value = false
+
+    // 从 FEN 恢复棋盘 (简单实现：使用初始棋盘)
+    // TODO: 如果有 FEN 解析器，可以从 data.fen 恢复完整棋盘
+    if (!isGameStarted.value) {
+      board.value = getInitialBoard()
+    }
+  }
+
+  // ===== 计时器 =====
+
   function startTimer() {
     stopTimer()
     timerInterval = window.setInterval(() => {
@@ -222,13 +230,11 @@ export const useGameStore = defineStore('game', () => {
         redTime.value--
         if (redTime.value <= 0) {
           stopTimer()
-          // 超时判负
         }
       } else {
         blackTime.value--
         if (blackTime.value <= 0) {
           stopTimer()
-          // 超时判负
         }
       }
     }, 1000)
@@ -258,6 +264,8 @@ export const useGameStore = defineStore('game', () => {
     lastMove.value = null
     isInCheck.value = false
     checkPosition.value = null
+    isAIThinking.value = false
+    drawRequestFrom.value = null
     stopTimer()
   }
 
@@ -279,13 +287,13 @@ export const useGameStore = defineStore('game', () => {
     lastMove,
     isInCheck,
     checkPosition,
+    isAIThinking,
+    drawRequestFrom,
     // 计算属性
     isMyTurn,
     myColorName,
     opponentColorName,
     // 方法
-    connect,
-    disconnect,
     sendMove,
     sendResign,
     sendDrawRequest,
@@ -294,5 +302,15 @@ export const useGameStore = defineStore('game', () => {
     clearSelection,
     resetGame,
     startTimer,
+    // 推送处理
+    handleGameStart,
+    handleMoveResult,
+    handleOpponentMove,
+    handleAIThinking,
+    handleAIMove,
+    handleGameOver,
+    handleDrawRequest,
+    handleDrawResult,
+    handleStateSync,
   }
 })

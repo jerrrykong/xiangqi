@@ -1,108 +1,56 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useRoomStore } from '@/stores/room'
-import { getRoom } from '@/api/room'
-import type { RoomListItem, RoomStatus } from '@/types/api'
+import { useGameStore } from '@/stores/game'
+import { watch } from 'vue'
 
 const router = useRouter()
 const roomStore = useRoomStore()
+const gameStore = useGameStore()
 
 const currentPage = ref(1)
 const pageSize = ref(20)
 const hasError = ref(false)
 
-// 房间详细信息（用于卡片展示）
-interface RoomCardInfo {
-  room_id: string
-  status: RoomStatus
-  red_user?: { username: string; rating?: number }
-  black_user?: { username: string; rating?: number }
-  created_at: string
-}
-const roomDetails = ref<Map<string, RoomCardInfo>>(new Map())
-
-// 定时刷新
-let refreshInterval: number | null = null
-
-// 确保数据已加载
-async function ensureDataLoaded() {
-  if (roomStore.roomList.length > 0 || roomStore.isLoading) {
-    return
+// 监听游戏开始 → 跳转
+watch(() => gameStore.isGameStarted, (val) => {
+  if (val && roomStore.currentRoom) {
+    router.push(`/game/${roomStore.currentRoom.roomId}`)
   }
-  await fetchRooms()
-}
+})
 
 onMounted(async () => {
-  console.log('RoomList mounted, fetching rooms...')
-  await ensureDataLoaded()
-  refreshInterval = window.setInterval(async () => {
-    console.log('Auto-refreshing rooms...')
-    await fetchRooms()
-  }, 5000)
+  await fetchRooms()
 })
-
-onUnmounted(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-  }
-})
-
-async function fetchRoomDetails(roomId: string) {
-  try {
-    const detail = await getRoom(roomId)
-    roomDetails.value.set(roomId, {
-      room_id: detail.room_id,
-      status: detail.status,
-      red_user: detail.red_user ? { username: detail.red_user.username, rating: detail.red_user.rating } : undefined,
-      black_user: detail.black_user ? { username: detail.black_user.username, rating: detail.black_user.rating } : undefined,
-      created_at: '',
-    })
-  } catch (e) {
-    console.error('Failed to fetch room detail:', roomId, e)
-  }
-}
 
 async function fetchRooms() {
   hasError.value = false
   try {
-    console.log('Fetching rooms, page:', currentPage.value, 'pageSize:', pageSize.value)
     await roomStore.fetchRoomList(currentPage.value, pageSize.value)
-    console.log('Rooms fetched successfully, count:', roomStore.roomList.length)
-
-    // 获取每个房间的详细信息
-    roomDetails.value.clear()
-    for (const room of roomStore.roomList) {
-      await fetchRoomDetails(room.room_id)
-    }
   } catch (error: any) {
-    console.error('Failed to fetch rooms:', error)
     hasError.value = true
-    const message = error.response?.data?.message || error.message || '获取房间列表失败'
-    ElMessage.error(message)
+    ElMessage.error(error.message || '获取房间列表失败')
   }
 }
 
-async function handleJoinRoom(room: RoomListItem) {
+async function handleJoinRoom(room: any) {
   try {
     await roomStore.joinRoom(room.room_id)
     ElMessage.success('加入房间成功')
-    router.push(`/room/${room.room_id}`)
+    // 游戏开始后由 watch 自动跳转
   } catch (error: any) {
-    const message = error.response?.data?.message || '加入房间失败'
-    ElMessage.error(message)
+    ElMessage.error(error.message || '加入房间失败')
   }
 }
 
 async function handleCreateRoom() {
   try {
-    const response = await roomStore.createRoom()
-    ElMessage.success('房间创建成功')
-    router.push(`/room/${response.room_id}`)
+    await roomStore.createRoom('pvp')
+    ElMessage.success('房间创建成功，等待对手加入...')
   } catch (error: any) {
-    const message = error.response?.data?.message || '创建房间失败'
-    ElMessage.error(message)
+    ElMessage.error(error.message || '创建房间失败')
   }
 }
 
@@ -111,28 +59,22 @@ function handlePageChange(page: number) {
   fetchRooms()
 }
 
-function getStatusTagType(status: RoomStatus): string {
-  switch (status) {
+function getStatusTagType(phase: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
+  switch (phase) {
     case 'waiting': return 'success'
-    case 'ready': return 'warning'
     case 'playing': return 'danger'
     case 'finished': return 'info'
     default: return 'info'
   }
 }
 
-function getStatusText(status: RoomStatus): string {
-  switch (status) {
+function getStatusText(phase: string): string {
+  switch (phase) {
     case 'waiting': return '等待中'
-    case 'ready': return '已就绪'
     case 'playing': return '对战中'
     case 'finished': return '已结束'
-    default: return status
+    default: return phase
   }
-}
-
-function getRoomDetail(roomId: string): RoomCardInfo | undefined {
-  return roomDetails.value.get(roomId)
 }
 
 function formatTime(dateStr: string): string {
@@ -159,6 +101,7 @@ function formatTime(dateStr: string): string {
           <h1>房间列表</h1>
         </div>
         <div class="header-right">
+          <el-button @click="fetchRooms">刷新</el-button>
           <el-button type="primary" @click="router.push('/lobby')">返回大厅</el-button>
         </div>
       </div>
@@ -209,8 +152,8 @@ function formatTime(dateStr: string): string {
           >
             <!-- 房间状态标签 -->
             <div class="card-header">
-              <el-tag :type="getStatusTagType(getRoomDetail(room.room_id)?.status || 'waiting')" size="large">
-                {{ getStatusText(getRoomDetail(room.room_id)?.status || 'waiting') }}
+              <el-tag :type="getStatusTagType(room.phase)" size="large">
+                {{ getStatusText(room.phase) }}
               </el-tag>
               <span class="room-id">房间号: {{ room.room_id.slice(0, 8) }}</span>
             </div>
@@ -220,10 +163,10 @@ function formatTime(dateStr: string): string {
               <div class="player-label">红方</div>
               <div class="player-info">
                 <span class="player-name">
-                  {{ getRoomDetail(room.room_id)?.red_user?.username || '等待加入...' }}
+                  {{ room.red_player?.username || '等待加入...' }}
                 </span>
-                <span v-if="getRoomDetail(room.room_id)?.red_user?.rating" class="player-rating">
-                  {{ getRoomDetail(room.room_id)?.red_user?.rating }}分
+                <span v-if="room.red_player?.rating" class="player-rating">
+                  {{ room.red_player.rating }}分
                 </span>
               </div>
             </div>
@@ -238,10 +181,10 @@ function formatTime(dateStr: string): string {
               <div class="player-label">黑方</div>
               <div class="player-info">
                 <span class="player-name">
-                  {{ getRoomDetail(room.room_id)?.black_user?.username || '等待加入...' }}
+                  {{ room.black_player?.username || '等待加入...' }}
                 </span>
-                <span v-if="getRoomDetail(room.room_id)?.black_user?.rating" class="player-rating">
-                  {{ getRoomDetail(room.room_id)?.black_user?.rating }}分
+                <span v-if="room.black_player?.rating" class="player-rating">
+                  {{ room.black_player.rating }}分
                 </span>
               </div>
             </div>
@@ -313,7 +256,6 @@ function formatTime(dateStr: string): string {
   width: 100%;
 }
 
-/* 操作栏 */
 .action-bar {
   margin-bottom: 24px;
   display: flex;
@@ -324,7 +266,6 @@ function formatTime(dateStr: string): string {
   margin-right: 8px;
 }
 
-/* 居中消息 */
 .center-message {
   display: flex;
   flex-direction: column;
@@ -353,36 +294,17 @@ function formatTime(dateStr: string): string {
   font-size: 1rem;
 }
 
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 16px;
-}
+.empty-icon { font-size: 4rem; margin-bottom: 16px; }
+.empty-title { font-size: 1.5rem; font-weight: bold; color: #374151; margin-bottom: 8px; }
+.empty-text { color: #6b7280; font-size: 1rem; margin-bottom: 24px; }
+.retry-button { margin-top: 8px; }
 
-.empty-title {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: #374151;
-  margin-bottom: 8px;
-}
-
-.empty-text {
-  color: #6b7280;
-  font-size: 1rem;
-  margin-bottom: 24px;
-}
-
-.retry-button {
-  margin-top: 8px;
-}
-
-/* 房间网格 */
 .room-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 20px;
 }
 
-/* 房间卡片 */
 .room-card {
   background: white;
   border-radius: 16px;
@@ -406,12 +328,8 @@ function formatTime(dateStr: string): string {
   align-items: center;
 }
 
-.room-id {
-  font-size: 0.875rem;
-  opacity: 0.9;
-}
+.room-id { font-size: 0.875rem; opacity: 0.9; }
 
-/* 玩家行 */
 .player-row {
   display: flex;
   align-items: center;
@@ -419,13 +337,8 @@ function formatTime(dateStr: string): string {
   gap: 12px;
 }
 
-.red-side {
-  background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, transparent 100%);
-}
-
-.black-side {
-  background: linear-gradient(90deg, rgba(31, 41, 55, 0.1) 0%, transparent 100%);
-}
+.red-side { background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, transparent 100%); }
+.black-side { background: linear-gradient(90deg, rgba(31, 41, 55, 0.1) 0%, transparent 100%); }
 
 .player-label {
   width: 48px;
@@ -438,41 +351,14 @@ function formatTime(dateStr: string): string {
   font-size: 0.875rem;
 }
 
-.red-side .player-label {
-  background: #ef4444;
-  color: white;
-}
+.red-side .player-label { background: #ef4444; color: white; }
+.black-side .player-label { background: #1f2937; color: white; }
 
-.black-side .player-label {
-  background: #1f2937;
-  color: white;
-}
+.player-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.player-name { font-weight: 500; color: #374151; }
+.player-rating { font-size: 0.875rem; color: #6b7280; }
 
-.player-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.player-name {
-  font-weight: 500;
-  color: #374151;
-}
-
-.player-rating {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
-
-/* VS 分隔线 */
-.vs-divider {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 0;
-}
-
+.vs-divider { display: flex; align-items: center; justify-content: center; padding: 8px 0; }
 .vs-text {
   background: var(--color-wood-100);
   color: var(--color-wood-600);
@@ -482,7 +368,6 @@ function formatTime(dateStr: string): string {
   font-size: 0.875rem;
 }
 
-/* 卡片底部 */
 .card-footer {
   padding: 12px 16px;
   border-top: 1px solid #f3f4f6;
@@ -492,15 +377,6 @@ function formatTime(dateStr: string): string {
   background: #fafafa;
 }
 
-.room-time {
-  font-size: 0.875rem;
-  color: #9ca3af;
-}
-
-/* 分页 */
-.pagination-wrapper {
-  margin-top: 32px;
-  display: flex;
-  justify-content: center;
-}
+.room-time { font-size: 0.875rem; color: #9ca3af; }
+.pagination-wrapper { margin-top: 32px; display: flex; justify-content: center; }
 </style>
