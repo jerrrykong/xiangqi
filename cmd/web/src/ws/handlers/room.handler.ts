@@ -13,6 +13,7 @@ export function registerRoomHandlers(): void {
   messageRouter.on(WSRespType.PLAYER_LEFT, (data) => roomStore.handlePlayerLeft(data))
   messageRouter.on(WSRespType.ROOM_REMOVED, () => roomStore.handleRoomRemoved())
   messageRouter.on(WSRespType.ROOM_LIST_RESULT, (data) => roomStore.handleRoomListResult(data))
+  messageRouter.on(WSRespType.ROOM_UPDATE, () => roomStore.handleRoomUpdate())
   messageRouter.on(WSRespType.GAME_START, (data) => {
     roomStore.handleGameStart(data)
     gameStore.handleGameStart(data)

@@ -17,6 +17,7 @@ import { wsClient } from '@/ws/client'
 import { WSMsgType } from '@/ws/types'
 import { useAuthStore } from './auth'
 import { useRoomStore } from './room'
+import router from '@/router'
 
 export const useGameStore = defineStore('game', () => {
   // 棋盘状态
@@ -64,6 +65,7 @@ export const useGameStore = defineStore('game', () => {
   // 发送走棋
   function sendMove(move: Move) {
     const { from_pos, to_pos } = moveToPos(move)
+    console.log('[Game] Send move:', from_pos, '->', to_pos)
     wsClient.request(WSMsgType.GAME_MOVE, { from_pos, to_pos })
       .then((result: MoveResultData) => {
         if (result.success) {
@@ -123,6 +125,7 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理游戏开始
   function handleGameStart(data: GameStartData) {
+    console.log('[Game] Game started, room=', data.room_id, 'side=', data.your_side)
     roomId.value = data.room_id
     board.value = getInitialBoard() // 从 FEN 或使用初始棋盘
     const authStore = useAuthStore()
@@ -150,6 +153,7 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理对手走棋
   function handleOpponentMove(data: OpponentMoveData) {
+    console.log('[Game] Opponent move:', data.from_pos, '->', data.to_pos)
     const move = posToMove(data.from_pos, data.to_pos)
     board.value[move.to_row][move.to_col] = board.value[move.from_row][move.from_col]
     board.value[move.from_row][move.from_col] = -1
@@ -176,6 +180,7 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理游戏结束
   function handleGameOver(data: GameOverData) {
+    console.log('[Game] Game over, winner=', data.winner, 'reason=', data.reason)
     isGameOver.value = true
     gameResult.value = data.winner // 'red' / 'black' / 'draw'
     gameReason.value = data.reason
@@ -199,15 +204,49 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理状态同步 (断线重连)
   function handleStateSync(data: StateSyncData) {
+    console.log('[Game] State sync, room=', data.room_id, 'phase=', data.phase, 'side=', data.your_side)
     roomId.value = data.room_id
     yourColor.value = data.your_side === 'red' ? 0 : 1
     redTime.value = data.red_remaining_time
     blackTime.value = data.black_remaining_time
+    currentTurn.value = (data as any).current_side === 'black' ? 1 : 0
 
     // 更新房间状态
     const roomStore = useRoomStore()
     if (roomStore.currentRoom) {
       roomStore.currentRoom.phase = data.phase
+      roomStore.currentRoom.yourSide = data.your_side === 'red' ? 'red' : 'black'
+      // 恢复对手信息
+      const myUserId = useAuthStore().user?.user_id
+      if (data.red_player && data.red_player.user_id !== myUserId) {
+        roomStore.currentRoom.opponent = {
+          userId: data.red_player.user_id,
+          username: data.red_player.username,
+          rating: data.red_player.rating,
+        }
+      } else if (data.black_player && data.black_player.user_id !== myUserId) {
+        roomStore.currentRoom.opponent = {
+          userId: data.black_player.user_id,
+          username: data.black_player.username,
+          rating: data.black_player.rating,
+        }
+      }
+    } else if (data.room_id) {
+      // roomStore.currentRoom 未设置 (reconnect_result 没有设置成功)
+      const myUserId = useAuthStore().user?.user_id
+      let opponent: { userId: number; username: string; rating?: number } | undefined
+      if (data.red_player && data.red_player.user_id !== myUserId) {
+        opponent = { userId: data.red_player.user_id, username: data.red_player.username, rating: data.red_player.rating }
+      } else if (data.black_player && data.black_player.user_id !== myUserId) {
+        opponent = { userId: data.black_player.user_id, username: data.black_player.username, rating: data.black_player.rating }
+      }
+      roomStore.setCurrentRoom({
+        roomId: data.room_id,
+        roomType: data.room_type,
+        yourSide: data.your_side === 'red' ? 'red' : 'black',
+        phase: data.phase,
+        opponent,
+      })
     }
 
     isGameStarted.value = data.phase === 'playing'
@@ -218,6 +257,18 @@ export const useGameStore = defineStore('game', () => {
     // TODO: 如果有 FEN 解析器，可以从 data.fen 恢复完整棋盘
     if (!isGameStarted.value) {
       board.value = getInitialBoard()
+    } else {
+      board.value = getInitialBoard()
+      startTimer()
+    }
+
+    // 导航到对局页面
+    if (isGameStarted.value && data.room_id) {
+      const currentPath = router.currentRoute.value.path
+      if (!currentPath.startsWith('/game/')) {
+        router.replace(`/game/${data.room_id}`)
+        console.log('[Game] State sync: navigating to game page, room=', data.room_id)
+      }
     }
   }
 

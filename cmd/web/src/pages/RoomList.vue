@@ -38,8 +38,8 @@ async function fetchRooms() {
 async function handleJoinRoom(room: any) {
   try {
     await roomStore.joinRoom(room.room_id)
-    ElMessage.success('加入房间成功')
-    // 游戏开始后由 watch 自动跳转
+    // 加入成功 → 跳转到 Game 页面
+    router.push(`/game/${roomStore.currentRoom!.roomId}`)
   } catch (error: any) {
     ElMessage.error(error.message || '加入房间失败')
   }
@@ -48,7 +48,8 @@ async function handleJoinRoom(room: any) {
 async function handleCreateRoom() {
   try {
     await roomStore.createRoom('pvp')
-    ElMessage.success('房间创建成功，等待对手加入...')
+    // 创建成功 → 跳转到 Game 页面等待对手
+    router.push(`/game/${roomStore.currentRoom!.roomId}`)
   } catch (error: any) {
     ElMessage.error(error.message || '创建房间失败')
   }

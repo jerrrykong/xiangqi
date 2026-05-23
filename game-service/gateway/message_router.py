@@ -15,13 +15,15 @@ logger = logging.getLogger(__name__)
 # Messages allowed in each state
 STATE_ALLOWED_MESSAGES: dict[ConnectionState, set[str]] = {
     ConnectionState.UNAUTHENTICATED: {
-        "auth_login", "auth_register", "auth_token", "ping",
+        "auth_login", "auth_register", "auth_token", "auth_refresh", "reconnect",
+        "ping",
     },
     ConnectionState.AUTHENTICATED: {
         "user_get_me", "user_update_profile", "user_get_rankings",
         "user_get_history",
         "room_create", "room_list", "room_join", "room_leave",
         "match_join", "match_leave",
+        "auth_refresh",
         "admin_users", "admin_ban", "admin_stats", "admin_models",
         "ping",
     },
@@ -62,6 +64,8 @@ class MessageRouter:
         """
         msg_type = msg.get("type", "")
         seq = msg.get("seq", 0)
+
+        logger.debug(f"Routing msg type={msg_type} seq={seq} from user={conn.user_id} state={conn.state.name}")
 
         # Handle ping directly
         if msg_type == "ping":

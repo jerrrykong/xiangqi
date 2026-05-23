@@ -75,6 +75,12 @@ class InternalConfig:
 class LoggingConfig:
     level: str = "INFO"
     format: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    log_dir: str = "logs"
+    filename: str = "game-service.log"
+    when: str = "midnight"       # 滚动周期: midnight / D / H / W0-W6
+    interval: int = 1            # 滚动间隔
+    backup_count: int = 30       # 保留最近N天的日志
+    encoding: str = "utf-8"
 
 
 @dataclass

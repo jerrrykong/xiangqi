@@ -66,6 +66,7 @@ export const WSRespType = {
   ROOM_JOINED: 'room_joined',
   ROOM_LEFT: 'room_left',
   ROOM_REMOVED: 'room_removed',
+  ROOM_UPDATE: 'room_update',
   PLAYER_JOINED: 'player_joined',
   PLAYER_LEFT: 'player_left',
   // 游戏
@@ -308,4 +309,4 @@ export interface ErrorData {
 // ========== 连接状态 (对齐 gateway/connection_state.py) ==========
 
 export type WSConnectionState = 'disconnected' | 'connecting' | 'connected'
-export type WSAuthState = 'unauthenticated' | 'authenticated' | 'in_room' | 'matchmaking'
+export type WSAuthState = 'unauthenticated' | 'restoring' | 'authenticated' | 'in_room' | 'matchmaking'

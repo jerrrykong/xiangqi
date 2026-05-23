@@ -20,8 +20,12 @@ const roomId = computed(() => route.params.id as string)
 // 初始化游戏 — 不再建立独立 WS，全局 WS 已连接
 onMounted(() => {
   // 如果游戏未开始但已有房间，说明正在等待 game_start 推送
-  if (!gameStore.isGameStarted) {
-    // game_start 推送会通过消息路由触发 gameStore.handleGameStart
+  if (!gameStore.isGameStarted && roomStore.currentRoom) {
+    // 等待对手加入，game_start 推送会通过消息路由触发 gameStore.handleGameStart
+  }
+  // 如果没有房间信息（直接访问 URL），跳回大厅
+  if (!roomStore.currentRoom && !gameStore.isGameStarted) {
+    router.replace('/lobby')
   }
 })
 
@@ -80,15 +84,42 @@ function handleDrawAnswer(accept: boolean) {
 }
 
 // 返回大厅
-function handleBack() {
-  ElMessageBox.confirm('确定要返回大厅吗？当前对局将被判负', '警告', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(() => {
-    gameStore.sendResign()
-    router.push('/lobby')
-  })
+async function handleBack() {
+  try {
+    await ElMessageBox.confirm('确定要返回大厅吗？当前对局将被判负', '警告', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return // 用户取消
+  }
+
+  try {
+    // 使用 leaveRoom 等待服务端确认退出后再导航
+    await roomStore.leaveRoom()
+    gameStore.resetGame()
+    router.replace('/lobby')
+  } catch (error: any) {
+    // leaveRoom 失败时也允许返回 (可能服务端已清理)
+    console.warn('[Game] Leave room failed, forcing navigate to lobby:', error.message)
+    gameStore.resetGame()
+    roomStore.clearRoom()
+    const authStore = useAuthStore()
+    authStore.setAuthState('authenticated')
+    router.replace('/lobby')
+  }
+}
+
+// 游戏结束后返回大厅
+async function handleGameOverBack() {
+  try {
+    await roomStore.leaveRoom()
+  } catch {
+    // 游戏已结束，房间可能已清理，忽略错误
+  }
+  gameStore.resetGame()
+  router.replace('/lobby')
 }
 
 // 胜负结果描述
@@ -158,6 +189,15 @@ const opponentName = computed(() => {
     <div v-if="gameStore.isAIThinking" class="ai-thinking-banner">
       <div class="loading-spinner-small"></div>
       <span>AI 正在思考...</span>
+    </div>
+
+    <!-- 等待对手 -->
+    <div v-if="!gameStore.isGameStarted && !gameStore.isGameOver && roomStore.currentRoom?.phase === 'waiting'" class="waiting-banner">
+      <div class="waiting-content">
+        <div class="loading-spinner"></div>
+        <span>等待对手加入...</span>
+        <span class="room-id-hint">房间号: {{ roomId.slice(0, 8) }}</span>
+      </div>
     </div>
 
     <!-- 游戏主区域 -->
@@ -235,7 +275,7 @@ const opponentName = computed(() => {
         </div>
       </div>
       <template #footer>
-        <el-button type="primary" size="large" class="full-width" @click="router.push('/lobby')">返回大厅</el-button>
+        <el-button type="primary" size="large" class="full-width" @click="handleGameOverBack">返回大厅</el-button>
       </template>
     </el-dialog>
 
@@ -320,6 +360,38 @@ const opponentName = computed(() => {
 .ai-thinking-banner {
   background: rgba(59, 130, 246, 0.1);
   color: #3b82f6;
+}
+
+.waiting-banner {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  padding: 16px;
+}
+
+.waiting-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.room-id-hint {
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: normal;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(59, 130, 246, 0.3);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
 .loading-spinner-small {

@@ -29,11 +29,13 @@ class AuthService:
         """
         user = await self.user_repo.get_by_username(username)
         if not user:
+            logger.warning(f"login: User {username} not found")
             return None
 
         # Verify password
         try:
             if not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+                logger.warning(f"login: Password check failed for user {username}")
                 return None
         except Exception as e:
             logger.warning(f"Password check error for user {username}: {e}")
@@ -41,6 +43,7 @@ class AuthService:
 
         # Check if banned
         if user.get("is_banned", False):
+            logger.warning(f"login: User {username} is banned")
             return None
 
         # Update last login time
@@ -48,6 +51,8 @@ class AuthService:
 
         # Get ELO rating
         elo = await self.elo_repo.get_by_user_id(user["id"])
+        
+        logger.info(f"login: User {username} logged in")
 
         # Return user with rating info (as a dict-like record)
         return user
@@ -60,6 +65,7 @@ class AuthService:
         """
         # Validate username uniqueness
         if await self.user_repo.exists_username(username):
+            logger.warning(f"register: Username {username} already exists")
             return None
 
         # Password strength validation

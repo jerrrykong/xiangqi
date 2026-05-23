@@ -51,10 +51,11 @@ router.beforeEach((to) => {
   if (requiresAuth && authStore.authState === 'unauthenticated') {
     // 需要认证但未认证，跳转到登录页
     return { name: 'Login', query: { redirect: to.fullPath } }
-  } else if (!requiresAuth && authStore.authState !== 'unauthenticated') {
+  } else if (!requiresAuth && authStore.authState !== 'unauthenticated' && authStore.authState !== 'restoring') {
     // 已认证访问登录/注册页，跳转到大厅
     return { name: 'Lobby' }
   } else {
+    // restoring 状态：不重定向，让页面显示 loading 等待凭证恢复结果
     return
   }
 })

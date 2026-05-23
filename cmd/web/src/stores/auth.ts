@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import type { WSAuthState, WSConnectionState, AuthResultData, AuthTokenResultData, ReconnectResultData, RatingUpdateData, ErrorData } from '@/ws/types'
 import { wsClient } from '@/ws/client'
 import { WSMsgType } from '@/ws/types'
+import router from '@/router'
+import { useRoomStore } from './room'
 
 export interface UserProfile {
   user_id: number
@@ -24,11 +26,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref(false)
 
   // WS 认证状态
-  const connectionState = ref<WSConnectionState>('disconnected')
+  const connectionState = ref<WSConnectionState>(wsClient.connectionState.value)
   const authState = ref<WSAuthState>('unauthenticated')
 
   // 计算属性
-  const isAuthenticated = computed(() => authState.value !== 'unauthenticated')
+  const isAuthenticated = computed(() => authState.value !== 'unauthenticated' && authState.value !== 'restoring')
 
   // 从 localStorage 恢复用户信息
   function restoreUser() {
@@ -47,71 +49,153 @@ export const useAuthStore = defineStore('auth', () => {
     authState.value = state
   }
 
-  // 初始化 — 建立 WS 连接 + 认证
-  async function init() {
+  // 是否有保存的凭证
+  function hasCredentials(): boolean {
+    return !!(token.value || sessionToken.value)
+  }
+
+  // 初始化 — 有凭证则连接+认证，无凭证则直接显示登录页
+  function init() {
     restoreUser()
 
-    // 同步 WS 连接状态
-    connectionState.value = wsClient.connectionState.value
-
-    // 如果 WS 已连接，不重复连接
-    if (wsClient.connectionState.value === 'connected') {
-      return
+    if (hasCredentials()) {
+      console.log('[Auth] Found saved credentials, restoring... (hasToken=', !!token.value, ', hasSession=', !!sessionToken.value, ')')
+      authState.value = 'restoring'
+      authenticateWithCredentials()
+    } else {
+      console.log('[Auth] No saved credentials, showing login page')
+      authState.value = 'unauthenticated'
+      connectionState.value = 'disconnected'
     }
+  }
 
+  // 使用保存的凭证连接+认证
+  async function authenticateWithCredentials() {
+    isLoading.value = true
     try {
-      isLoading.value = true
-      // 建立 WS 连接 (通过 Vite 代理 /ws → ws://localhost:8080/ws)
       const wsUrl = getWSUrl()
       await wsClient.connect(wsUrl)
 
-      // 连接成功后尝试认证
-      await authenticate()
+      // 连接成功，立即发送认证消息 (首条消息)
+      const result = await authenticate()
+      if (result === 'credentials_invalid') {
+        // 服务端明确表示凭证无效 → 清除凭证，显示登录页
+        console.log('[Auth] Credentials invalid, clearing auth')
+        clearAuth()
+        wsClient.disconnect()
+      } else if (result === 'ok') {
+        // 凭证恢复成功 → 导航到目标页面
+        console.log('[Auth] Credentials restored, user=', user.value?.username)
+        const redirect = router.currentRoute.value.query.redirect as string
+        if (redirect) {
+          router.replace(redirect)
+        } else if (router.currentRoute.value.path === '/login' || router.currentRoute.value.path === '/register') {
+          router.replace('/lobby')
+        }
+      }
+      // 'retry': 网络临时故障，保留凭证等待重连
     } catch (error) {
-      console.error('[Auth] Init failed:', error)
-      // 连接失败时仍然允许用户看到 Login 页面
+      console.error('[Auth] Credential auth failed:', error)
+      // 连接失败 (网络不可达等) → 不清除凭证，开启自动重连
+      authState.value = 'unauthenticated'
+      connectionState.value = 'disconnected'
+      // 设置重连回调，让 WSClient 重连成功后自动认证
+      setupReconnectHandler()
+      // 开启自动重连
+      wsClient.enableReconnect()
     } finally {
       isLoading.value = false
     }
   }
 
-  // 认证流程
-  async function authenticate() {
-    // 1. 优先尝试 session_token 重连
-    if (sessionToken.value) {
-      try {
-        const result = await wsClient.request(WSMsgType.RECONNECT, {
-          session_token: sessionToken.value,
-        })
-        if (result.success) {
-          handleReconnectResult(result)
-          return
-        }
-      } catch {
-        // session_token 失败，回退到 JWT
-      }
-    }
+  // 认证流程 (WS 已连接后调用，发送首条认证消息)
+  // 返回值: 'ok' = 认证成功, 'credentials_invalid' = 凭证无效(应清除), 'retry' = 网络临时故障(应重试)
+  async function authenticate(): Promise<'ok' | 'credentials_invalid' | 'retry'> {
+    // 策略: 优先 JWT token (最可靠), 其次 session_token (仅对局中重连有意义)
 
-    // 2. 尝试 JWT token 认证
+    // 1. 尝试 JWT token 认证 (最可靠，不依赖服务端内存状态)
     if (token.value) {
       try {
+        console.log('[Auth] Trying JWT token auth...')
         const result = await wsClient.request(WSMsgType.AUTH_TOKEN, {
           token: token.value,
         })
         if (result.success) {
+          console.log('[Auth] JWT token auth success, user=', result.username)
           handleAuthTokenResult(result)
-          return
+          wsClient.onAuthSuccess()
+          setupReconnectHandler()
+          return 'ok'
         }
-      } catch {
-        // JWT token 也失败了
+        // success=false 且有 error 字段 → 凭证无效
+        console.log('[Auth] JWT token auth failed:', result.error)
+        if (result.error === 'token_invalid' || result.error === 'user_banned') {
+          return 'credentials_invalid'
+        }
+      } catch (e) {
+        // 网络异常 (连接断开/超时) → 临时故障，不清除凭证
+        console.error('[Auth] JWT token auth network error:', e)
+        return 'retry'
       }
     }
 
-    // 3. 无有效凭证
-    clearAuth()
+    // 2. 尝试 session_token 重连 (依赖服务端内存中有对应连接)
+    if (sessionToken.value) {
+      try {
+        console.log('[Auth] Trying session_token reconnect...')
+        const result = await wsClient.request(WSMsgType.RECONNECT, {
+          session_token: sessionToken.value,
+        })
+        if (result.success) {
+          console.log('[Auth] Session reconnect success, user=', result.username, ', state=', result.state)
+          handleReconnectResult(result)
+          wsClient.onAuthSuccess()
+          setupReconnectHandler()
+          return 'ok'
+        }
+        // success=false → session 已失效，但 JWT 可能仍然有效
+        // 只有当没有任何其他凭证时才标记为无效
+        console.log('[Auth] Session reconnect failed:', result.error)
+        if (!token.value) {
+          return 'credentials_invalid'
+        }
+      } catch (e) {
+        // 网络异常
+        console.error('[Auth] Session reconnect network error:', e)
+        return 'retry'
+      }
+    }
+
+    // 没有任何凭证可用
+    return 'credentials_invalid'
   }
 
-  // 登录
+  // 设置重连回调 — 认证成功后断开重连时自动重新认证
+  function setupReconnectHandler() {
+    wsClient.setOnReconnect(async () => {
+      // 重连已由 WSClient 自动完成，WS 已连接，直接认证
+      try {
+        const result = await authenticate()
+        if (result === 'credentials_invalid') {
+          // 凭证已过期/无效，清除并回到登录页
+          clearAuth()
+          wsClient.disconnect()
+        }
+        // 'retry': 网络临时故障，断开 WS 让重连机制再次触发
+        if (result === 'retry') {
+          wsClient.disconnect()
+          wsClient.enableReconnect()
+        }
+      } catch (error) {
+        console.error('[Auth] Reconnect auth failed:', error)
+        // 网络异常，断开让重连机制再次触发
+        wsClient.disconnect()
+        wsClient.enableReconnect()
+      }
+    })
+  }
+
+  // 登录 — 连接 WS 并发送 auth_login 作为首条消息
   async function login(username: string, password: string): Promise<UserProfile> {
     isLoading.value = true
     try {
@@ -123,17 +207,21 @@ export const useAuthStore = defineStore('auth', () => {
 
       const result = await wsClient.request(WSMsgType.AUTH_LOGIN, { username, password })
       if (!result.success) {
+        // 登录失败 → 断开 WS
+        wsClient.disconnect()
         throw new Error(result.error || '登录失败')
       }
 
       handleAuthResult(result)
+      wsClient.onAuthSuccess()
+      setupReconnectHandler()
       return user.value!
     } finally {
       isLoading.value = false
     }
   }
 
-  // 注册
+  // 注册 — 连接 WS 并发送 auth_register 作为首条消息
   async function register(username: string, password: string, nickname?: string): Promise<UserProfile> {
     isLoading.value = true
     try {
@@ -145,10 +233,14 @@ export const useAuthStore = defineStore('auth', () => {
 
       const result = await wsClient.request(WSMsgType.AUTH_REGISTER, { username, password, nickname })
       if (!result.success) {
+        // 注册失败 → 断开 WS
+        wsClient.disconnect()
         throw new Error(result.error || '注册失败')
       }
 
       handleAuthResult(result)
+      wsClient.onAuthSuccess()
+      setupReconnectHandler()
       return user.value!
     } finally {
       isLoading.value = false
@@ -157,6 +249,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 登出
   function logout() {
+    wsClient.clearOnReconnect()
     wsClient.disconnect()
     clearAuth()
   }
@@ -245,6 +338,25 @@ export const useAuthStore = defineStore('auth', () => {
     // 根据状态恢复
     if (data.state === 'in_room') {
       authState.value = 'in_room'
+
+      // 设置 roomStore 的 currentRoom，等待后续 state_sync 推送恢复 gameStore
+      if (data.room_id) {
+        const roomStore = useRoomStore()
+        if (!roomStore.currentRoom) {
+          roomStore.setCurrentRoom({
+            roomId: data.room_id,
+            roomType: 'pvp',
+            yourSide: 'red', // 临时值，state_sync 会覆盖
+            phase: 'playing',
+          })
+          console.log('[Auth] Reconnect in_room: set currentRoom, waiting for state_sync, room_id=', data.room_id)
+        }
+
+        // 导航到对局页面
+        if (router.currentRoute.value.path !== `/game/${data.room_id}`) {
+          router.replace(`/game/${data.room_id}`)
+        }
+      }
     } else if (data.state === 'matchmaking') {
       authState.value = 'matchmaking'
     } else {
@@ -264,9 +376,10 @@ export const useAuthStore = defineStore('auth', () => {
   // 处理错误
   function handleError(data: ErrorData) {
     console.error('[Auth] WS Error:', data.code, data.message)
-    // 认证相关错误
-    if (data.code === 1001 || data.code === 1002) {
+    // 认证相关错误 → 清除凭证，断开连接
+    if (data.code === 1001 || data.code === 1002 || data.code === 1004) {
       clearAuth()
+      wsClient.disconnect()
     }
   }
 
@@ -293,9 +406,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 获取 WS URL
   function getWSUrl(): string {
-    // 开发环境通过 Vite 代理，生产环境使用当前 host
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = import.meta.env.DEV ? `${protocol}//${window.location.host}` : `${protocol}//${window.location.host}`
+    const host = `${protocol}//${window.location.host}`
     return `${host}/ws`
   }
 

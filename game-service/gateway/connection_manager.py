@@ -80,6 +80,7 @@ class ConnectionManager:
     def __init__(self):
         self._connections: dict[str, ClientConnection] = {}  # conn_id -> connection
         self._user_connections: dict[int, str] = {}  # user_id -> conn_id
+        self._room_manager_ref = None  # Set by main.py after initialization
 
     def register(self, conn: ClientConnection) -> None:
         """Register a new connection."""
@@ -92,6 +93,7 @@ class ConnectionManager:
             old_conn_id = self._user_connections[user_id]
             old_conn = self._connections.get(old_conn_id)
             if old_conn:
+                logger.info(f"Kicking existing connection: conn_id={old_conn_id}, user_id={user_id}, replaced by conn_id={conn.conn_id}")
                 asyncio.create_task(old_conn.kick("Replaced by new connection"))
 
         conn.user_id = user_id
@@ -102,6 +104,7 @@ class ConnectionManager:
         self._connections.pop(conn.conn_id, None)
         if conn.user_id and self._user_connections.get(conn.user_id) == conn.conn_id:
             self._user_connections.pop(conn.user_id, None)
+            logger.debug(f"Unregistered conn={conn.conn_id} user={conn.user_id} (online={len(self._user_connections)})")
 
     def get_by_user_id(self, user_id: int) -> Optional[ClientConnection]:
         """Get connection by user ID."""

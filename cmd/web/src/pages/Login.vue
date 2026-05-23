@@ -62,10 +62,10 @@ async function handleLogin() {
       <h1 class="auth-title">中国象棋</h1>
       <p class="auth-subtitle">用户登录</p>
 
-      <!-- WS 连接状态提示 -->
-      <div v-if="authStore.connectionState === 'disconnected' || authStore.connectionState === 'connecting'" class="connection-status">
+      <!-- 登录中提示 -->
+      <div v-if="isLoading" class="connection-status">
         <div class="loading-spinner-small"></div>
-        <span>{{ authStore.connectionState === 'connecting' ? '正在连接服务器...' : '连接已断开，正在重连...' }}</span>
+        <span>正在登录...</span>
       </div>
 
       <el-form
@@ -107,7 +107,6 @@ async function handleLogin() {
             size="large"
             class="full-width"
             :loading="isLoading"
-            :disabled="authStore.connectionState !== 'connected'"
             native-type="submit"
           >
             登录

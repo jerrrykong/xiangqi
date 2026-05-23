@@ -17,9 +17,9 @@ class WSClient {
 
   // === 重连 ===
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 10
-  private baseReconnectDelay = 1000
-  private shouldReconnect = true
+  private maxReconnectAttempts = 5
+  private baseReconnectDelay = 2000
+  private shouldReconnect = false  // 默认不自动重连，仅认证成功后才开启
 
   // === 心跳 ===
   private heartbeatInterval: number | null = null
@@ -31,24 +31,22 @@ class WSClient {
   // === 连接 ===
   connect(url: string): Promise<void> {
     this.url = url
-    this.shouldReconnect = true
-    this.reconnectAttempts = 0
+    // 连接时不开启自动重连，认证成功后才开启
 
     return new Promise((resolve, reject) => {
-      this.connectResolve = resolve
+      const originalResolve = resolve
+      this.connectResolve = () => {
+        clearTimeout(timeout)
+        originalResolve()
+      }
+
       this.createConnection()
 
       // 连接超时
       const timeout = setTimeout(() => {
+        this.connectResolve = null
         reject(new Error('Connection timeout'))
       }, 10000)
-
-      // 保存 resolve 以便 onopen 中使用
-      const originalResolve = this.connectResolve
-      this.connectResolve = () => {
-        clearTimeout(timeout)
-        originalResolve?.()
-      }
     })
   }
 
@@ -64,12 +62,19 @@ class WSClient {
       this.ws = new WebSocket(this.url)
 
       this.ws.onopen = () => {
-        console.log('[WS Client] Connected')
+        console.log('[WS] Connected to', this.url)
         this.connectionState.value = 'connected'
         this.reconnectAttempts = 0
-        this.startHeartbeat()
-        this.connectResolve?.()
-        this.connectResolve = null
+        // 注意: 心跳在认证成功后启动
+
+        if (this.connectResolve) {
+          // 主动连接 → resolve promise
+          this.connectResolve()
+          this.connectResolve = null
+        } else if (this.shouldReconnect) {
+          // 自动重连 → 通知上层重新认证
+          this.onReconnectCallback?.()
+        }
       }
 
       this.ws.onmessage = (event) => {
@@ -77,23 +82,24 @@ class WSClient {
           const message: WSMessage = JSON.parse(event.data)
           this.handleMessage(message)
         } catch (e) {
-          console.error('[WS Client] Failed to parse message:', e)
+          console.error('[WS] Failed to parse message:', e, event.data)
         }
       }
 
       this.ws.onerror = (error) => {
-        console.error('[WS Client] Error:', error)
+        console.error('[WS] Connection error, readyState=', this.ws?.readyState)
       }
 
       this.ws.onclose = (event) => {
-        console.log('[WS Client] Disconnected:', event.code, event.reason)
+        console.log('[WS] Disconnected: code=', event.code, 'reason=', event.reason, 'wasClean=', event.wasClean)
         this.connectionState.value = 'disconnected'
+        this.authState.value = 'unauthenticated'
         this.stopHeartbeat()
 
         // 清理所有挂起请求
         wsRequestManager.clearAll('WebSocket disconnected')
 
-        // 尝试重连
+        // 仅在已认证状态下自动重连
         this.attemptReconnect()
       }
     } catch (e) {
@@ -102,8 +108,28 @@ class WSClient {
     }
   }
 
-  // === 断开连接 ===
+  // === 认证成功后调用 ===
+  onAuthSuccess(): void {
+    console.log('[WS] Auth success, enabling auto-reconnect + heartbeat')
+    this.authState.value = 'authenticated'
+    this.shouldReconnect = true  // 认证成功后开启自动重连
+    this.reconnectAttempts = 0
+    this.startHeartbeat()
+  }
+
+  // === 开启自动重连 (不立即连接，等 onclose 触发时重连) ===
+  enableReconnect(): void {
+    this.shouldReconnect = true
+    this.reconnectAttempts = 0
+    // 如果当前已断开，立即开始重连
+    if (this.connectionState.value === 'disconnected') {
+      this.attemptReconnect()
+    }
+  }
+
+  // === 断开连接 (不自动重连) ===
   disconnect(): void {
+    console.log('[WS] Disconnecting (manual)')
     this.shouldReconnect = false
     this.stopHeartbeat()
     if (this.ws) {
@@ -117,6 +143,9 @@ class WSClient {
 
   // === 发送消息 ===
   send(message: { type: string; seq: number; data?: Record<string, any> }): void {
+    if (message.type !== 'ping') {
+      console.log('[WS] Send:', message.type, 'seq=', message.seq, message.data || '')
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const msg: WSMessage = {
         type: message.type,
@@ -145,6 +174,10 @@ class WSClient {
 
   // === 处理消息 ===
   private handleMessage(message: WSMessage): void {
+    // 调试日志：记录非心跳消息
+    if (message.type !== 'pong') {
+      console.log('[WS] Recv:', message.type, 'seq=', message.seq, message.data !== undefined ? message.data : '')
+    }
     // 1. 尝试匹配请求响应 (seq > 0 且在 pending 中)
     if (message.seq > 0 && wsRequestManager.handleResponse(message.seq, message.data)) {
       return
@@ -157,8 +190,6 @@ class WSClient {
 
     // 3. 错误消息 (可能是请求响应也可能是推送)
     if (message.type === WSRespType.ERROR) {
-      // 如果 seq > 0 且有 pending，已在步骤1处理
-      // 否则作为推送消息路由
       messageRouter.route(message.type, message.data)
       return
     }
@@ -182,27 +213,42 @@ class WSClient {
     }
   }
 
-  // === 重连 ===
+  // === 重连 (仅认证成功后断开才触发) ===
   private attemptReconnect(): void {
     if (!this.shouldReconnect) {
-      console.log('[WS Client] Reconnect disabled')
+      console.log('[WS] Reconnect skipped: shouldReconnect=false')
       return
     }
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('[WS Client] Max reconnect attempts reached')
+      console.log('[WS] Max reconnect attempts reached, giving up')
+      this.shouldReconnect = false
+      this.authState.value = 'unauthenticated'
       return
     }
 
     this.reconnectAttempts++
     const delay = this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1)
 
-    console.log(`[WS Client] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
+    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
 
     setTimeout(() => {
       if (this.connectionState.value === 'disconnected') {
         this.createConnection()
+        // 重连成功后通过 onopen → connectResolve
+        // 调用方需要在 connect 成功后重新认证
       }
     }, delay)
+  }
+
+  // === 重连回调 (认证成功后断开重连时使用) ===
+  private onReconnectCallback: (() => void) | null = null
+
+  setOnReconnect(callback: () => void): void {
+    this.onReconnectCallback = callback
+  }
+
+  clearOnReconnect(): void {
+    this.onReconnectCallback = null
   }
 
   // === 状态辅助 ===

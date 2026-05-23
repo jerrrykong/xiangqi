@@ -33,6 +33,7 @@ export const useRoomStore = defineStore('room', () => {
       const result = await wsClient.request(WSMsgType.ROOM_LIST, { page, page_size: pageSize })
       roomList.value = result.rooms || []
       totalRooms.value = result.total || 0
+      console.log('[Room] Fetched room list:', roomList.value.length, 'rooms')
     } finally {
       isLoading.value = false
     }
@@ -42,14 +43,19 @@ export const useRoomStore = defineStore('room', () => {
   async function createRoom(roomType: string = 'pvp', difficulty: number = 3) {
     isLoading.value = true
     try {
+      console.log('[Room] Creating room, type=', roomType, 'difficulty=', difficulty)
       const result = await wsClient.request(WSMsgType.ROOM_CREATE, { room_type: roomType, difficulty })
       currentRoom.value = {
         roomId: result.room_id,
         roomType: result.room_type || roomType,
-        phase: 'waiting',
-        yourSide: 'red', // 创建者默认红方
+        phase: result.status === 'playing' ? 'playing' : 'waiting',
+        yourSide: result.your_side || 'red', // 创建者默认红方
         difficulty,
       }
+      console.log('[Room] Room created:', result.room_id, 'phase=', currentRoom.value.phase, 'side=', currentRoom.value.yourSide)
+      // 更新认证状态
+      const authStore = useAuthStore()
+      authStore.setAuthState('in_room')
       return result
     } finally {
       isLoading.value = false
@@ -60,7 +66,9 @@ export const useRoomStore = defineStore('room', () => {
   async function joinRoom(roomId: string) {
     isLoading.value = true
     try {
+      console.log('[Room] Joining room:', roomId)
       const result = await wsClient.request(WSMsgType.ROOM_JOIN, { room_id: roomId })
+      console.log('[Room] Join result:', result)
       const authStore = useAuthStore()
       const userId = authStore.user?.user_id
 
@@ -101,6 +109,7 @@ export const useRoomStore = defineStore('room', () => {
   async function leaveRoom() {
     if (!currentRoom.value) return
 
+    console.log('[Room] Leaving room:', currentRoom.value.roomId)
     try {
       await wsClient.request(WSMsgType.ROOM_LEAVE, { room_id: currentRoom.value.roomId })
     } finally {
@@ -132,6 +141,7 @@ export const useRoomStore = defineStore('room', () => {
   // 处理对手加入
   function handlePlayerJoined(data: PlayerJoinedData) {
     if (!currentRoom.value) return
+    console.log('[Room] Player joined:', data.username, '(id=', data.user_id, ')')
     currentRoom.value.opponent = {
       userId: data.user_id,
       username: data.username,
@@ -149,6 +159,7 @@ export const useRoomStore = defineStore('room', () => {
   // 处理游戏开始
   function handleGameStart(_data: GameStartData) {
     if (!currentRoom.value) return
+    console.log('[Room] Game started, room=', currentRoom.value.roomId)
     currentRoom.value.phase = 'playing'
     const authStore = useAuthStore()
     authStore.setAuthState('in_room')
@@ -165,6 +176,15 @@ export const useRoomStore = defineStore('room', () => {
     const authStore = useAuthStore()
     if (authStore.authState === 'in_room') {
       authStore.setAuthState('authenticated')
+    }
+  }
+
+  // 处理房间变更通知 (服务端推送，自动刷新列表)
+  function handleRoomUpdate() {
+    // 仅在房间列表页时自动刷新
+    if (!currentRoom.value) {
+      console.log('[Room] Received room_update, refreshing list')
+      fetchRoomList()
     }
   }
 
@@ -196,5 +216,6 @@ export const useRoomStore = defineStore('room', () => {
     handleGameStart,
     handleRoomListResult,
     handleRoomRemoved,
+    handleRoomUpdate,
   }
 })

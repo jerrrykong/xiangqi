@@ -76,10 +76,10 @@ async function handleRegister() {
       <h1 class="auth-title">中国象棋</h1>
       <p class="auth-subtitle">用户注册</p>
 
-      <!-- WS 连接状态提示 -->
-      <div v-if="authStore.connectionState !== 'connected'" class="connection-status">
+      <!-- 注册中提示 -->
+      <div v-if="isLoading" class="connection-status">
         <div class="loading-spinner-small"></div>
-        <span>{{ authStore.connectionState === 'connecting' ? '正在连接服务器...' : '连接已断开，正在重连...' }}</span>
+        <span>正在注册...</span>
       </div>
 
       <el-form
@@ -135,7 +135,6 @@ async function handleRegister() {
             size="large"
             class="full-width"
             :loading="isLoading"
-            :disabled="authStore.connectionState !== 'connected'"
             native-type="submit"
           >
             注册

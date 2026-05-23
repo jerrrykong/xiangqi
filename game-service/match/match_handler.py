@@ -46,6 +46,7 @@ class MatchHandler:
 
         # Check if already in room
         if self.room_manager.is_user_in_room(conn.user_id):
+            logger.warning(f"Match join rejected: user={conn.user_id} already in room")
             await conn.send({
                 "type": "error",
                 "seq": seq,
@@ -64,6 +65,7 @@ class MatchHandler:
         )
 
         if "error" in result:
+            logger.info(f"Match join failed: user={conn.user_id}, error={result['error']}")
             await conn.send({
                 "type": "error",
                 "seq": seq,
@@ -72,6 +74,7 @@ class MatchHandler:
             return
 
         conn.set_state(ConnectionState.MATCHMAKING)
+        logger.info(f"User {conn.username}(id={conn.user_id}, rating={rating}) joined match queue, position={result.get('position')}")
 
         await conn.send({
             "type": "match_queued",
@@ -84,6 +87,7 @@ class MatchHandler:
         seq = msg.get("seq", 0)
 
         success = await self.match_service.leave_match(conn.user_id)
+        logger.info(f"User {conn.username}(id={conn.user_id}) left match queue, success={success}")
 
         if success:
             conn.set_state(ConnectionState.AUTHENTICATED)

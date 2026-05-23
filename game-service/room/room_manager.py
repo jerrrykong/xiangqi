@@ -61,6 +61,8 @@ class RoomManager:
         self.rooms[room_id] = room
         self.user_rooms[creator.user_id] = room_id
 
+        logger.info(f"Manual PvP room created: room_id={room_id}, creator={creator.username}(id={creator.user_id})")
+
         # Persist to DB
         try:
             await self.room_repo.create(
@@ -88,6 +90,8 @@ class RoomManager:
         room.add_player(red, "red")
         room.add_player(black, "black")
         room.init_game()
+
+        logger.info(f"Match PvP room created: room_id={room_id}, red={red.username}({red.rating}) vs black={black.username}({black.rating})")
 
         self.rooms[room_id] = room
         self.user_rooms[red.user_id] = room_id
@@ -136,10 +140,10 @@ class RoomManager:
 
         room.init_game()
 
+        logger.info(f"PvE room created: room_id={room_id}, player={player.username}(id={player.user_id}), side={player_side}, difficulty={difficulty}")
+
         self.rooms[room_id] = room
         self.user_rooms[player.user_id] = room_id
-
-        # Persist to DB
         try:
             await self.room_repo.create(
                 room_id=room_id, room_type="pve", source="manual",
@@ -161,12 +165,16 @@ class RoomManager:
         """Join a manual room. Automatically starts the game."""
         room = self.rooms.get(room_id)
         if not room:
+            logger.debug(f"Join room failed: room_id={room_id} not found")
             return None
         if room.phase != RoomPhase.WAITING:
+            logger.debug(f"Join room failed: room_id={room_id} phase={room.phase.name}, not WAITING")
             return None
         if room.is_full:
+            logger.debug(f"Join room failed: room_id={room_id} is full")
             return None
 
+        logger.info(f"Player {player.username}(id={player.user_id}) joining room {room_id}")
         room.add_player(player, "black")
         self.user_rooms[player.user_id] = room_id
 
@@ -260,6 +268,7 @@ class RoomManager:
 
     async def apply_player_move(self, room: Room, move: Move) -> None:
         """Apply a player's move. Called by RoomHandler."""
+        logger.debug(f"Applying move in room={room.room_id}: ({move.from_row},{move.from_col})->({move.to_row},{move.to_col})")
         await self._apply_and_broadcast_move(room, move, "opponent_move")
         room.move_event.set()
 
@@ -388,6 +397,7 @@ class RoomManager:
             room.timer.stop()
 
         winner = "draw"
+        logger.info(f"Game over: room={room.room_id}, reason={reason}, computing winner...")
         game_result = room.game_state.game_result if room.game_state else None
 
         if game_result in (GameResult.RED_WINS, "RED_WINS"):
@@ -396,6 +406,7 @@ class RoomManager:
             winner = "black"
 
         # Broadcast game_over
+        logger.info(f"Game over broadcast: room={room.room_id}, winner={winner}, reason={reason}, moves={room.game_state.move_count if room.game_state else 0}")
         await self._broadcast(room, {
             "type": "game_over",
             "data": {
@@ -530,6 +541,8 @@ class RoomManager:
         if room.phase != RoomPhase.PLAYING:
             return
 
+        logger.info(f"Timeout in room={room.room_id}, side={side} timed out")
+
         if side == "red":
             room.game_state.game_result = GameResult.RED_TIMEOUT
         else:
@@ -599,6 +612,7 @@ class RoomManager:
 
     async def _cleanup_room(self, room: Room) -> None:
         """Clean up room resources."""
+        logger.info(f"Cleaning up room={room.room_id}")
         room.phase = RoomPhase.FINISHED
         for player in [room.red_player, room.black_player]:
             if player:

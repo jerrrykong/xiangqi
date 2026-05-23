@@ -51,10 +51,10 @@ class AuthHandler:
         data = msg.get("data", {})
         seq = msg.get("seq", 0)
         username = data.get("username", "")
-        password = data.get("password", "")
 
-        user = await self.auth_service.login(username, password)
+        user = await self.auth_service.login(username, data.get("password", ""))
         if not user:
+            logger.info(f"Login failed: invalid credentials for username='{username}' conn={conn.conn_id}")
             await conn.send({
                 "type": "auth_result",
                 "seq": seq,
@@ -70,6 +70,8 @@ class AuthHandler:
             user["id"], user["username"], user.get("is_admin", False),
         )
         session_token = str(uuid.uuid4())
+        
+        logger.info(f"User {user['username']} login success, create session_token [{session_token}]")
 
         # Register connection
         conn.user_id = user["id"]
@@ -111,6 +113,7 @@ class AuthHandler:
 
         user = await self.auth_service.register(username, password, nickname)
         if not user:
+            logger.info(f"Register failed: username='{username}' already exists, conn={conn.conn_id}")
             await conn.send({
                 "type": "auth_register_result",
                 "seq": seq,
@@ -134,6 +137,8 @@ class AuthHandler:
         conn.set_state(ConnectionState.AUTHENTICATED)
         self.connection_manager.bind_user(conn, user["id"])
 
+        logger.info(f"User {user['username']} registered and auto-login, conn={conn.conn_id}")
+
         await conn.send({
             "type": "auth_register_result",
             "seq": seq,
@@ -156,10 +161,11 @@ class AuthHandler:
         """Handle auth_token - authenticate with existing JWT token."""
         data = msg.get("data", {})
         seq = msg.get("seq", 0)
-        token = data.get("token", "")
+        token_str = data.get("token", "")
 
-        claims = self.jwt_manager.parse_token(token)
+        claims = self.jwt_manager.parse_token(token_str)
         if not claims:
+            logger.info(f"Token auth failed: invalid token, conn={conn.conn_id}")
             await conn.send({
                 "type": "auth_token_result",
                 "seq": seq,
@@ -169,6 +175,7 @@ class AuthHandler:
 
         user = await self.user_service.get_user_info(claims.user_id)
         if not user or user.get("is_banned", False):
+            logger.info(f"Token auth failed: user_id={claims.user_id} not found or banned, conn={conn.conn_id}")
             await conn.send({
                 "type": "auth_token_result",
                 "seq": seq,
@@ -183,6 +190,8 @@ class AuthHandler:
         conn.is_admin = claims.is_admin
         conn.set_state(ConnectionState.AUTHENTICATED)
         self.connection_manager.bind_user(conn, claims.user_id)
+        
+        logger.info(f"User {conn.username}(id={conn.user_id}) token auth success, session_token={session_token[:8]}..., conn={conn.conn_id}")
 
         await conn.send({
             "type": "auth_token_result",
@@ -207,6 +216,7 @@ class AuthHandler:
 
         result = self.jwt_manager.refresh_token(refresh_token_str)
         if not result:
+            logger.info(f"Token refresh failed: invalid refresh_token, user_id={conn.user_id}, conn={conn.conn_id}")
             await conn.send({
                 "type": "auth_refresh_result",
                 "seq": seq,
@@ -215,6 +225,7 @@ class AuthHandler:
             return
 
         new_token, expires_at = result
+        logger.info(f"Token refresh success, user_id={conn.user_id}, conn={conn.conn_id}")
         await conn.send({
             "type": "auth_refresh_result",
             "seq": seq,
@@ -230,11 +241,11 @@ class AuthHandler:
         data = msg.get("data", {})
         seq = msg.get("seq", 0)
         session_token = data.get("session_token", "")
-        room_id = data.get("room_id", "")
 
         # Find original connection by session_token
         original_conn = self._find_connection_by_session(session_token)
         if not original_conn:
+            logger.info(f"Reconnect failed: session_token not found, conn={conn.conn_id}")
             await conn.send({
                 "type": "reconnect_result",
                 "seq": seq,
@@ -242,19 +253,24 @@ class AuthHandler:
             })
             return
 
+        logger.info(f"Reconnect: user={original_conn.username}(id={original_conn.user_id}), room_id={original_conn.room_id}, conn={conn.conn_id}")
+
         # Transfer state from original connection
         conn.user_id = original_conn.user_id
         conn.username = original_conn.username
         conn.session_token = str(uuid.uuid4())  # New session token
         conn.is_admin = original_conn.is_admin
 
-        if room_id and original_conn.room_id == room_id:
-            conn.room_id = room_id
+        # Determine reconnection state
+        in_room = bool(original_conn.room_id) and original_conn.state == ConnectionState.IN_ROOM
+
+        if in_room:
+            conn.room_id = original_conn.room_id
             conn.set_state(ConnectionState.IN_ROOM)
         else:
             conn.set_state(ConnectionState.AUTHENTICATED)
 
-        # Bind the new connection
+        # Bind the new connection (this may kick the old connection)
         self.connection_manager.bind_user(conn, conn.user_id)
 
         # Send reconnect result
@@ -271,8 +287,84 @@ class AuthHandler:
             },
         })
 
-        # If in room, room handler will push state_sync separately
-        # (This will be connected when T7 room module is implemented)
+        # If in room, reconnect the player session and send state_sync
+        if in_room and conn.room_id:
+            await self._restore_room_state(conn)
+
+    async def _restore_room_state(self, conn: ClientConnection) -> None:
+        """Restore player's room state after reconnection."""
+        # Import here to avoid circular imports
+        from room.room import RoomPhase
+        from chess.piece import board_to_fen
+
+        room = self.connection_manager._room_manager_ref.get_user_room(conn.user_id) if hasattr(self.connection_manager, '_room_manager_ref') and self.connection_manager._room_manager_ref else None
+
+        if not room:
+            logger.warning(f"Reconnect: user={conn.user_id} has room_id={conn.room_id} but room not found, resetting to authenticated")
+            conn.set_state(ConnectionState.AUTHENTICATED)
+            conn.room_id = None
+            return
+
+        # Reconnect the player session in the room
+        side = room.get_player_side(conn.user_id)
+        if not side:
+            logger.warning(f"Reconnect: user={conn.user_id} not a player in room={room.room_id}")
+            conn.set_state(ConnectionState.AUTHENTICATED)
+            conn.room_id = None
+            return
+
+        player = room.get_player(side)
+        if player:
+            player.reconnect(conn)
+            logger.info(f"Reconnect: player {conn.username}(id={conn.user_id}) reconnected to room={room.room_id}, side={side}")
+
+        # Send state_sync with full game state
+        fen = board_to_fen(room.game_state.board) if room.game_state else ""
+        current_side = "red" if room.game_state.current_player == 0 else "black" if room.game_state else "red"
+
+        state_data = {
+            "room_id": room.room_id,
+            "room_type": "pvp" if room.room_type == 1 else "pve",
+            "phase": room.phase.name.lower(),
+            "fen": fen,
+            "your_side": side,
+            "current_side": current_side,
+            "red_player": self._player_info_from_room(room.red_player),
+            "black_player": self._player_info_from_room(room.black_player),
+            "red_remaining_time": room.timer.red_remaining if room.timer else room.initial_time,
+            "black_remaining_time": room.timer.black_remaining if room.timer else room.initial_time,
+            "moves": [],
+        }
+
+        # Build moves list from game history
+        if room.game_state and hasattr(room.game_state, 'recorder'):
+            try:
+                for record in room.game_state.recorder.moves:
+                    state_data["moves"].append({
+                        "from_pos": [record.move.from_row, record.move.from_col],
+                        "to_pos": [record.move.to_row, record.move.to_col],
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to build moves list for state_sync: {e}")
+
+        await conn.send({
+            "type": "state_sync",
+            "data": state_data,
+        })
+
+        logger.info(f"Reconnect: state_sync sent for user={conn.user_id}, room={room.room_id}, phase={room.phase.name}, side={side}")
+
+    @staticmethod
+    def _player_info_from_room(player) -> Optional[dict]:
+        """Get player info dict for state_sync."""
+        if not player:
+            return None
+        return {
+            "user_id": player.user_id,
+            "username": player.username,
+            "nickname": player.nickname,
+            "rating": player.rating,
+        }
 
     def _find_connection_by_session(self, session_token: str) -> Optional[ClientConnection]:
         """Find a connection by its session token."""

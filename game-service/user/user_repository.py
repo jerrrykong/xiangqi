@@ -133,22 +133,23 @@ class UserRepository:
                                game_type: Optional[str] = None) -> tuple[list[asyncpg.Record], int]:
         """Get game history for a user."""
         async with self._pool.acquire() as conn:
-            conditions = ["(red_user_id = $1 OR black_user_id = $1)"]
+            conditions = ["(gh.red_user_id = $1 OR gh.black_user_id = $1)"]
             params: list[Any] = [user_id]
             idx = 2
 
             if game_type:
-                # Filter by game type via room join
-                conditions.append(
-                    f"room_id IN (SELECT id FROM rooms WHERE type = ${idx})"
-                )
+                conditions.append(f"r.type = ${idx}")
                 params.append(game_type)
                 idx += 1
 
             where = f"WHERE {' AND '.join(conditions)}"
 
             total = await conn.fetchval(
-                f"SELECT COUNT(*) FROM game_history {where}", *params,
+                f"""SELECT COUNT(*)
+                    FROM game_history gh
+                    LEFT JOIN rooms r ON r.id = gh.room_id
+                    {where}""",
+                *params,
             )
 
             offset = (page - 1) * page_size

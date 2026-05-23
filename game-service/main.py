@@ -8,6 +8,7 @@ import os
 import json
 import asyncio
 import logging
+import logging.handlers
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -32,6 +33,7 @@ from user.user_handler import UserHandler
 from room.room_repository import RoomRepository, GameRepository, ModelRepository
 from room.room_manager import RoomManager
 from room.room_handler import RoomHandler
+from room.room import RoomPhase
 from match.match_service import MatchService
 from match.match_handler import MatchHandler
 from admin.admin_service import AdminService
@@ -70,11 +72,45 @@ admin_handler: AdminHandler = None
 
 
 def setup_logging(config: Config) -> None:
-    """Configure logging."""
-    logging.basicConfig(
-        level=getattr(logging, config.logging.level, logging.INFO),
-        format=config.logging.format,
+    """Configure logging with console and rotating file handlers."""
+    log_cfg = config.logging
+    log_level = getattr(logging, log_cfg.level, logging.INFO)
+    formatter = logging.Formatter(log_cfg.format)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    # 清除已有 handler（避免 uvicorn 或重复调用导致重复日志）
+    root_logger.handlers.clear()
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler - TimedRotatingFileHandler (按日期滚动)
+    log_dir = os.path.abspath(log_cfg.log_dir)
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, log_cfg.filename)
+
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+        filename=log_path,
+        when=log_cfg.when,
+        interval=log_cfg.interval,
+        backupCount=log_cfg.backup_count,
+        encoding=log_cfg.encoding,
     )
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(formatter)
+    file_handler.suffix = "%Y-%m-%d"  # 滚动文件后缀格式
+    root_logger.addHandler(file_handler)
+
+    # 让 uvicorn 的日志也走 root logger（写入文件）
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uv_logger = logging.getLogger(name)
+        uv_logger.setLevel(log_level)
+        uv_logger.handlers.clear()  # 移除 uvicorn 默认的 console handler
+        uv_logger.propagate = True  # 传播到 root logger
 
 
 async def initialize(config: Config) -> None:
@@ -112,6 +148,9 @@ async def initialize(config: Config) -> None:
     user_service = UserService(user_repo, elo_repo)
     room_manager = RoomManager(room_repo, game_repo, elo_repo, user_service)
     match_service = MatchService(room_manager, connection_manager, user_service, config.match)
+
+    # Set room_manager reference on connection_manager for reconnect state_sync
+    connection_manager._room_manager_ref = room_manager
     admin_service = AdminService(
         user_repo, room_repo, game_repo, model_repo,
         online_count_func=connection_manager.online_count,
@@ -120,7 +159,7 @@ async def initialize(config: Config) -> None:
     # 6. Handlers
     auth_handler = AuthHandler(auth_service, user_service, jwt_manager, connection_manager)
     user_handler = UserHandler(user_service)
-    room_handler = RoomHandler(room_manager)
+    room_handler = RoomHandler(room_manager, connection_manager)
     match_handler = MatchHandler(match_service, room_manager, user_service)
     admin_handler = AdminHandler(admin_service, room_manager)
 
@@ -159,7 +198,9 @@ async def lifespan(app: FastAPI):
     global config
     config = load_config()
     setup_logging(config)
+    logger.info("\n\n===============================================")    
     logger.info("Game Service v2.0 starting up...")
+    logger.info("===============================================")    
     await initialize(config)
 
     # Start match service
@@ -198,41 +239,66 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         await ws.accept()
         connection_manager.register(conn)
-        logger.info(f"WebSocket connected: {conn_id}")
+        logger.info(f"WebSocket connected: {conn_id} (total={connection_manager.total_connections})")
 
-        # First message must be authentication (within 30 seconds)
-        try:
-            auth_data = await asyncio.wait_for(ws.receive_text(), timeout=30)
-            auth_msg = json.loads(auth_data)
+        # === 认证阶段: 必须在 30 秒内认证成功 ===
+        AUTH_MSG_TYPES = {"auth_login", "auth_register", "auth_token", "reconnect"}
+        auth_deadline = time.time() + 30
 
-            if auth_msg.get("type") not in ("auth_login", "auth_register", "auth_token", "reconnect"):
-                await ws.send_json({
+        while not conn.is_authenticated:
+            remaining = auth_deadline - time.time()
+            if remaining <= 0:
+                await conn.send({
                     "type": "error",
-                    "data": {"code": 1004, "message": "Authentication required"},
+                    "seq": 0,
+                    "data": {"code": 1004, "message": "Authentication timeout"},
                 })
                 await ws.close()
                 connection_manager.unregister(conn)
                 return
 
-            # Route the auth message
-            await message_router.route(conn, auth_msg)
-
-            if not conn.is_authenticated:
-                # Auth failed, close connection
+            try:
+                raw = await asyncio.wait_for(ws.receive_text(), timeout=remaining)
+                msg = json.loads(raw)
+                conn.last_ping = time.time()
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected during auth: {conn_id}")
+                return
+            except asyncio.TimeoutError:
+                await conn.send({
+                    "type": "error",
+                    "seq": 0,
+                    "data": {"code": 1004, "message": "Authentication timeout"},
+                })
                 await ws.close()
                 connection_manager.unregister(conn)
                 return
 
-        except asyncio.TimeoutError:
-            await ws.send_json({
-                "type": "error",
-                "data": {"code": 1004, "message": "Authentication timeout"},
-            })
-            await ws.close()
-            connection_manager.unregister(conn)
-            return
+            msg_type = msg.get("type", "")
+            if msg_type not in AUTH_MSG_TYPES:
+                logger.warning(f"Non-auth message '{msg_type}' during auth phase from conn={conn_id}")
+                await conn.send({
+                    "type": "error",
+                    "seq": msg.get("seq", 0),
+                    "data": {"code": 1004, "message": "Authentication required"},
+                })
+                continue  # 不关闭，允许重试
 
-        # Main message loop
+            # 路由认证消息
+            try:
+                await message_router.route(conn, msg)
+            except Exception as e:
+                logger.error(f"Auth handler error: {e}", exc_info=True)
+                await conn.send({
+                    "type": "error",
+                    "seq": msg.get("seq", 0),
+                    "data": {"code": 1000, "message": "Internal server error"},
+                })
+
+            # is_authenticated 已在 handler 中更新
+
+        # === 认证成功，进入主消息循环 ===
+        logger.info(f"User {conn.username}(id={conn.user_id}) authenticated, conn={conn_id}")
         while True:
             try:
                 raw = await ws.receive_text()
@@ -249,8 +315,18 @@ async def websocket_endpoint(ws: WebSocket):
                     "type": "error",
                     "data": {"code": 1000, "message": "Invalid JSON"},
                 })
+            except RuntimeError as e:
+                # WS 已断开（未 accept 或已关闭），退出循环
+                logger.info(f"WebSocket closed externally: {conn_id} ({e})")
+                break
             except Exception as e:
                 logger.error(f"Message handling error: {e}", exc_info=True)
+                # 检查 WS 是否仍可用，不可用则退出避免死循环
+                try:
+                    await ws.send_text("")  # 探测 WS 是否仍连接
+                except Exception:
+                    logger.info(f"WebSocket no longer usable: {conn_id}")
+                    break
 
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
@@ -258,7 +334,7 @@ async def websocket_endpoint(ws: WebSocket):
         # Handle disconnection
         await handle_disconnect(conn)
         connection_manager.unregister(conn)
-        logger.info(f"WebSocket closed: {conn_id}")
+        logger.info(f"WebSocket closed: {conn_id} user={conn.user_id} (online={connection_manager.online_count})")
 
 
 async def handle_disconnect(conn: ClientConnection) -> None:
@@ -360,13 +436,18 @@ def main():
     config = load_config()
     setup_logging(config)
 
+    log_level = getattr(logging, config.logging.level, logging.INFO)
+
+    # 禁用 uvicorn 默认日志配置，使用我们自己的 root logger
+    # uvicorn 的 log_config=None 会跳过默认配置，日志由 root logger 统一处理
     uvicorn.run(
         "main:app",
         host=config.server.host,
         port=config.server.port,
         workers=config.server.workers,
         reload=False,
-        log_level=config.logging.level.lower(),
+        log_level=log_level,
+        log_config=None,
     )
 
 

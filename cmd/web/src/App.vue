@@ -24,11 +24,40 @@ onMounted(() => {
 </script>
 
 <template>
-  <RouterView />
+  <!-- 正在恢复凭证时显示加载页，避免闪烁到登录页 -->
+  <div v-if="authStore.authState === 'restoring'" class="restoring-screen">
+    <div class="restoring-spinner"></div>
+    <p>正在恢复登录状态...</p>
+  </div>
+  <RouterView v-else />
 </template>
 
 <style>
 #app {
   min-height: 100vh;
+}
+
+.restoring-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.restoring-spinner {
+  width: 36px;
+  height: 36px;
+  border: 4px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

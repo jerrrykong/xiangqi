@@ -95,6 +95,7 @@ class MatchService:
                 break
 
             entry_a, entry_b = result
+            logger.info(f"Match found: {entry_a.username}({entry_a.rating}) vs {entry_b.username}({entry_b.rating})")
             await self._create_match(entry_a, entry_b)
 
     async def _create_match(self, entry_a: QueueEntry, entry_b: QueueEntry) -> None:
