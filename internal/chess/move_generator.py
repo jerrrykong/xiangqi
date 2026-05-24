@@ -374,8 +374,8 @@ class MoveGenerator:
                         move_type='capture' if target >= 0 else 'move'
                     ))
             
-            # 过河后可以横移
-            if row < RIVER_ROW:
+            # 过河后可以横移 (row <= RIVER_ROW 因为红兵方向向下，row 4 已到对方地盘)
+            if row <= RIVER_ROW:
                 for dcol in [-1, 1]:
                     new_col = col + dcol
                     if 0 <= new_col < BOARD_COLS:
