@@ -40,6 +40,19 @@ const SOUND_MAP: SoundConfig = {
   cannon:     { file: 'voice_move_cannon.wav',   category: 'voice', volume: 0.9 },  // 当头炮
   check_voice:{ file: 'voice_check.wav',          category: 'voice', volume: 0.9 },  // 将军
 
+  // === 落子/平炮语音 ===
+  drop_advisor:  { file: 'voice_luo_advisor.wav',  category: 'voice', volume: 0.9 },  // 落士
+  drop_elephant: { file: 'voice_luo_elephant.wav', category: 'voice', volume: 0.9 },  // 落象
+  level_cannon:  { file: 'voice_ping_cannon.wav',  category: 'voice', volume: 0.9 },  // 平炮
+
+  // === 吃子语音 ===
+  eat_advisor:  { file: 'voice_eat_advisor.wav',  category: 'voice', volume: 0.9 },  // 吃士
+  eat_elephant: { file: 'voice_eat_elephant.wav', category: 'voice', volume: 0.9 },  // 吃象
+  eat_cannon:   { file: 'voice_eat_cannon.wav',   category: 'voice', volume: 0.9 },  // 吃炮
+  eat_pawn:     { file: 'voice_eat_pawn.wav',     category: 'voice', volume: 0.9 },  // 吃卒
+  eat_chariot:  { file: 'voice_eat_chariot.wav',  category: 'voice', volume: 0.9 },  // 吃车
+  eat_horse:    { file: 'voice_eat_horse.wav',    category: 'voice', volume: 0.9 },  // 吃马
+
   // === 游戏语音 ===
   start:      { file: 'voice_start.wav',      category: 'voice', volume: 0.9 },  // 请开始游戏
   your_turn:  { file: 'voice_your_turn.wav',  category: 'voice', volume: 0.9 },  // 轮到你走棋
@@ -146,6 +159,51 @@ export class SoundManager {
       'pawn':    'pawn',
     }
     const key = idMap[pieceId.split('_')[1]]
+    if (key) this.play(key)
+  }
+
+  /** 播放移动语音（更智能的版本，根据走子方向选择语音）*/
+  playMoveVoiceSmart(pieceChar: string, isCapture: boolean, isRetreat: boolean): void {
+    const eatMap: Record<string, SoundKey> = {
+      '车': 'eat_chariot', '俥': 'eat_chariot',
+      '马': 'eat_horse',   '傌': 'eat_horse',
+      '象': 'eat_elephant','相': 'eat_elephant',
+      '士': 'eat_advisor', '仕': 'eat_advisor',
+      '炮': 'eat_cannon',  '砲': 'eat_cannon',
+      '兵': 'eat_pawn',    '卒': 'eat_pawn',
+    }
+
+    if (isCapture) {
+      const capKey = eatMap[pieceChar]
+      if (capKey) { this.play(capKey); return }
+    }
+
+    // 后退走法（落士、落象）
+    if (isRetreat) {
+      const dropMap: Record<string, SoundKey> = {
+        '士': 'drop_advisor', '仕': 'drop_advisor',
+        '象': 'drop_elephant','相': 'drop_elephant',
+      }
+      const key = dropMap[pieceChar]
+      if (key) { this.play(key); return }
+    }
+
+    // 默认走法
+    this.playMoveVoice(pieceChar)
+  }
+
+  /** 播放吃子语音（根据被吃棋子类型）*/
+  playCaptureVoice(capturedPieceChar: string): void {
+    const eatMap: Record<string, SoundKey> = {
+      '车': 'eat_chariot', '俥': 'eat_chariot',
+      '马': 'eat_horse',   '傌': 'eat_horse',
+      '象': 'eat_elephant','相': 'eat_elephant',
+      '士': 'eat_advisor', '仕': 'eat_advisor',
+      '炮': 'eat_cannon',  '砲': 'eat_cannon',
+      '兵': 'eat_pawn',    '卒': 'eat_pawn',
+      '将': 'check_voice', '帅': 'check_voice',
+    }
+    const key = eatMap[capturedPieceChar]
     if (key) this.play(key)
   }
 
