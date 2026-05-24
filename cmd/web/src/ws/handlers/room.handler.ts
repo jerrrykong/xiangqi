@@ -9,8 +9,13 @@ export function registerRoomHandlers(): void {
   const roomStore = useRoomStore()
   const gameStore = useGameStore()
 
-  messageRouter.on(WSRespType.PLAYER_JOINED, (data) => roomStore.handlePlayerJoined(data))
-  messageRouter.on(WSRespType.PLAYER_LEFT, (data) => roomStore.handlePlayerLeft(data))
+  messageRouter.on(WSRespType.PLAYER_JOINED, (data) => {
+    roomStore.handlePlayerJoined(data)
+  })
+  messageRouter.on(WSRespType.PLAYER_LEFT, (data) => {
+    roomStore.handlePlayerLeft(data)
+    gameStore.handlePlayerLeft(data)
+  })
   messageRouter.on(WSRespType.ROOM_REMOVED, () => roomStore.handleRoomRemoved())
   messageRouter.on(WSRespType.ROOM_LIST_RESULT, (data) => roomStore.handleRoomListResult(data))
   messageRouter.on(WSRespType.ROOM_UPDATE, () => roomStore.handleRoomUpdate())
@@ -18,4 +23,6 @@ export function registerRoomHandlers(): void {
     roomStore.handleGameStart(data)
     gameStore.handleGameStart(data)
   })
+  messageRouter.on(WSRespType.OPPONENT_READY, (data) => gameStore.handleOpponentReady(data))
+  messageRouter.on(WSRespType.OPPONENT_REMATCH, (data) => gameStore.handleOpponentRematch(data))
 }

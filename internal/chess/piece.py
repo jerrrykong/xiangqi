@@ -354,10 +354,11 @@ def board_from_array(board_array: list[list[int]]) -> Board:
 def board_to_fen(board: Board, turn: Color = Color.RED) -> str:
     """将棋盘转换为 FEN 格式 (简化版)
     
-    注意: 这是简化版 FEN，完整 FEN 比较复杂
+    FEN 行顺序: 从棋盘顶部(row 0, 黑方底线) 到底部(row 9, 红方底线)
+    大写字母 = 红方, 小写字母 = 黑方
     """
     lines = []
-    for row in range(BOARD_ROWS - 1, -1, -1):
+    for row in range(BOARD_ROWS):
         line = ""
         empty_count = 0
         for col in range(BOARD_COLS):

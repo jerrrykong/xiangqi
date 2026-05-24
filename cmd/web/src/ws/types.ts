@@ -33,6 +33,8 @@ export const WSMsgType = {
   GAME_RESIGN: 'game_resign',
   GAME_DRAW_REQ: 'game_draw_req',
   GAME_DRAW_ANS: 'game_draw_ans',
+  GAME_READY: 'game_ready',
+  GAME_REMATCH: 'game_rematch',
   // 匹配
   MATCH_JOIN: 'match_join',
   MATCH_LEAVE: 'match_leave',
@@ -78,6 +80,10 @@ export const WSRespType = {
   GAME_OVER: 'game_over',
   DRAW_REQUEST: 'draw_request',
   DRAW_RESULT: 'draw_result',
+  READY_ACCEPTED: 'ready_accepted',
+  OPPONENT_READY: 'opponent_ready',
+  REMATCH_ACCEPTED: 'rematch_accepted',
+  OPPONENT_REMATCH: 'opponent_rematch',
   // 匹配
   MATCH_QUEUED: 'match_queued',
   MATCH_LEFT: 'match_left',
@@ -122,6 +128,9 @@ export interface AuthTokenResultData {
   games_count?: number
   is_admin?: boolean
   session_token?: string
+  state?: string        // 'authenticated' | 'in_room'
+  room_id?: string      // 当 state='in_room' 时的房间 ID
+  room_phase?: string   // 'waiting' | 'playing'
   error?: string
 }
 
@@ -218,12 +227,32 @@ export interface PlayerJoinedData {
   nickname: string
   side: string
   rating: number
+  phase?: string // 'ready' when entering ready phase
+}
+
+// ---- Ready / Rematch ----
+
+export interface ReadyAcceptedData {
+  // empty - just acknowledgment
+}
+
+export interface OpponentReadyData {
+  user_id: number
+}
+
+export interface RematchAcceptedData {
+  // empty - just acknowledgment
+}
+
+export interface OpponentRematchData {
+  user_id: number
 }
 
 // ---- 游戏响应 ----
 
 export interface GameStartData {
   room_id: string
+  your_side: string // 'red' | 'black'
   red_player: { user_id: number; username: string; rating: number }
   black_player: { user_id: number; username: string; rating: number }
   initial_time: number
@@ -257,6 +286,7 @@ export interface GameOverData {
   room_id: string
   winner: string // 'red' | 'black' | 'draw'
   reason: string // 'checkmate' | 'resign' | 'timeout' | 'draw' | 'disconnect'
+  total_moves: number
   red_rating_change: number
   black_rating_change: number
 }
@@ -264,7 +294,7 @@ export interface GameOverData {
 export interface StateSyncData {
   room_id: string
   room_type: string
-  phase: string
+  phase: string // 'waiting' | 'ready' | 'playing' | 'finished'
   fen: string
   your_side: string
   red_player?: { user_id: number; username: string; rating: number }
@@ -272,6 +302,8 @@ export interface StateSyncData {
   red_remaining_time: number
   black_remaining_time: number
   moves: Array<{ from_pos: number[]; to_pos: number[] }>
+  ready_players?: number[]
+  rematch_players?: number[]
 }
 
 // ---- 匹配响应 ----

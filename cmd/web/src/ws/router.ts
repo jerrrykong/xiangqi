@@ -5,9 +5,10 @@ type MessageHandler = (data: any) => void
 class MessageRouter {
   private handlers = new Map<string, MessageHandler[]>()
 
-  // 注册处理器
+  // 注册处理器（自动去重，防止 HMR / 重复 mount 导致 handler 被注册多次）
   on(type: string, handler: MessageHandler): void {
     const existing = this.handlers.get(type) || []
+    if (existing.includes(handler)) return
     existing.push(handler)
     this.handlers.set(type, existing)
   }

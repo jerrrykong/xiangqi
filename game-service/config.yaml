@@ -26,6 +26,7 @@ game:
   max_think_time: 300          # 最大思考时间(秒)
   heartbeat_interval: 30       # 心跳间隔(秒)
   heartbeat_timeout: 60        # 心跳超时(秒)
+  disconnect_timeout: 300      # 断线超时(秒)，非Playing状态下超时视为离开房间
 
 match:
   tick_interval: 2             # 匹配循环间隔(秒)

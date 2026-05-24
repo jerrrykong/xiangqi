@@ -46,6 +46,7 @@ class GameConfig:
     max_think_time: int = 300
     heartbeat_interval: int = 30
     heartbeat_timeout: int = 60
+    disconnect_timeout: int = 300  # 断线超时(秒)，非Playing状态下超时视为离开房间
 
 
 @dataclass

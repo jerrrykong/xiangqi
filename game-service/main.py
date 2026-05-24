@@ -146,7 +146,8 @@ async def initialize(config: Config) -> None:
     # 5. Services
     auth_service = AuthService(user_repo, elo_repo)
     user_service = UserService(user_repo, elo_repo)
-    room_manager = RoomManager(room_repo, game_repo, elo_repo, user_service)
+    room_manager = RoomManager(room_repo, game_repo, elo_repo, user_service,
+                                disconnect_timeout=config.game.disconnect_timeout)
     match_service = MatchService(room_manager, connection_manager, user_service, config.match)
 
     # Set room_manager reference on connection_manager for reconnect state_sync
@@ -206,12 +207,21 @@ async def lifespan(app: FastAPI):
     # Start match service
     await match_service.start()
 
+    # Restore active rooms from DB
+    restored = await room_manager.restore_active_rooms()
+    if restored > 0:
+        logger.info(f"Restored {restored} active rooms from DB")
+
+    # Start disconnect timeout checker
+    room_manager.start_disconnect_checker()
+
     # Start heartbeat checker
     heartbeat_task = asyncio.create_task(heartbeat_checker())
 
     yield
 
     # Shutdown
+    room_manager.stop_disconnect_checker()
     heartbeat_task.cancel()
     try:
         await heartbeat_task
@@ -343,16 +353,22 @@ async def handle_disconnect(conn: ClientConnection) -> None:
         return
 
     room = room_manager.get_user_room(conn.user_id)
-    if room and room.phase == RoomPhase.PLAYING:
-        # Player is in a game - keep room alive for reconnection
-        player = room.get_player(room.get_player_side(conn.user_id) or "")
-        if player:
-            player.disconnect()
-        logger.info(f"Player {conn.user_id} disconnected from room {room.room_id}")
-    elif room and room.phase == RoomPhase.WAITING:
-        # Player is in a waiting room - leave
-        # Room handler will handle cleanup
-        pass
+    if not room:
+        return
+
+    player = room.get_player(room.get_player_side(conn.user_id) or "")
+    if player:
+        player.disconnect()
+        logger.info(f"Player {conn.user_id} disconnected from room {room.room_id} (phase={room.phase.name})")
+
+        # Notify the opponent in non-PLAYING phases
+        if room.phase != RoomPhase.PLAYING:
+            opponent = room.get_opponent(conn.user_id)
+            if opponent and opponent.is_connected:
+                await opponent.send({
+                    "type": "opponent_disconnected",
+                    "data": {"user_id": conn.user_id},
+                })
 
 
 # ---- HTTP Endpoints ----

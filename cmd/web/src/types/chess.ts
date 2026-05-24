@@ -195,3 +195,52 @@ export const GameReason = {
 } as const
 
 export type GameReasonType = typeof GameReason[keyof typeof GameReason]
+
+// FEN 解析: 从 FEN 字符串恢复棋盘
+const FEN_PIECE_MAP_UPPER: Record<string, number> = {
+  K: Piece.RedKing,
+  A: Piece.RedAdvisor,
+  B: Piece.RedBishop,
+  N: Piece.RedKnight,
+  R: Piece.RedRook,
+  C: Piece.RedCannon,
+  P: Piece.RedPawn,
+}
+const FEN_PIECE_MAP_LOWER: Record<string, number> = {
+  k: Piece.BlackKing,
+  a: Piece.BlackAdvisor,
+  b: Piece.BlackBishop,
+  n: Piece.BlackKnight,
+  r: Piece.BlackRook,
+  c: Piece.BlackCannon,
+  p: Piece.BlackPawn,
+}
+
+export function parseFEN(fen: string): number[][] {
+  const boardPart = fen.includes(' ') ? fen.split(' ')[0] : fen
+  const rows = boardPart.split('/')
+  const board: number[][] = []
+
+  for (let i = 0; i < rows.length; i++) {
+    const row: number[] = []
+    const rowStr = rows[i]
+    for (const ch of rowStr) {
+      if (ch >= '1' && ch <= '9') {
+        for (let j = 0; j < parseInt(ch); j++) {
+          row.push(Piece.Empty)
+        }
+      } else if (ch >= 'A' && ch <= 'Z') {
+        row.push(FEN_PIECE_MAP_UPPER[ch] ?? Piece.Empty)
+      } else if (ch >= 'a' && ch <= 'z') {
+        row.push(FEN_PIECE_MAP_LOWER[ch] ?? Piece.Empty)
+      }
+    }
+    board.push(row)
+  }
+
+  // FEN rows go from top (row 0 in our board = black side) to bottom (row 9 = red side)
+  // But FEN writes from rank 10 (top) to rank 1 (bottom)
+  // Our board[0] = row 0 (black side), board[9] = row 9 (red side)
+  // FEN rows[0] = top of board = row 0, so the order matches
+  return board
+}

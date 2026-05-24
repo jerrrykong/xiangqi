@@ -24,9 +24,10 @@ class RoomSource(IntEnum):
 
 
 class RoomPhase(IntEnum):
-    WAITING = 1
-    PLAYING = 2
-    FINISHED = 3
+    WAITING = 1   # 等待对手加入
+    READY = 2     # 双方都在，等待点击开始
+    PLAYING = 3   # 对局中
+    FINISHED = 4  # 对局结束
 
 
 class RoomType(IntEnum):
@@ -39,9 +40,10 @@ class Room:
     """Room object - the sole carrier of a complete game.
 
     Lifecycle:
-    - Manual PvP: create → WAITING → join → PLAYING → FINISHED
+    - Manual PvP: create → WAITING → join → READY → both ready → PLAYING → FINISHED
     - Match PvP: match_found → directly PLAYING → FINISHED
     - PvE: create → directly PLAYING → FINISHED
+    - Rematch: FINISHED → both rematch → swap colors → PLAYING → FINISHED
     """
     room_id: str
     room_type: RoomType
@@ -70,6 +72,15 @@ class Room:
 
     # Draw state
     draw_requester_id: Optional[int] = None
+
+    # Ready state (READY phase: both must click start)
+    ready_players: set = field(default_factory=set)
+
+    # Rematch state (FINISHED phase: both must click rematch)
+    rematch_players: set = field(default_factory=set)
+
+    # Game count in this room (for tracking multi-game sessions)
+    game_count: int = 0
 
     @property
     def is_full(self) -> bool:
@@ -108,6 +119,17 @@ class Room:
         self.phase = RoomPhase.PLAYING
         import time
         self.started_at = time.time()
+        self.game_count += 1
+        self.ready_players.clear()
+        self.rematch_players.clear()
+
+    def swap_colors(self) -> None:
+        """Swap red and black players for rematch."""
+        self.red_player, self.black_player = self.black_player, self.red_player
+        if self.red_player:
+            self.red_player.side = "red"
+        if self.black_player:
+            self.black_player.side = "black"
 
     def add_player(self, player: PlayerSession, side: str) -> None:
         """Add a player to the specified side."""

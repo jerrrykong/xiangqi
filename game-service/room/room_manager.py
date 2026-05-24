@@ -4,11 +4,13 @@ Manages all active rooms in memory.
 """
 
 import asyncio
+import json
 import logging
+import time
 import uuid
 from typing import Dict, Optional
 
-from chess.constants import Color, GameResult
+from chess.constants import Color, GameResult, WinReason
 from chess.game import ChessGame
 from chess.move import Move
 from chess.move_validator import MoveValidator
@@ -32,7 +34,8 @@ class RoomManager:
     """
 
     def __init__(self, room_repo: RoomRepository, game_repo: GameRepository,
-                 elo_repo: EloRepository, user_service: UserService):
+                 elo_repo: EloRepository, user_service: UserService,
+                 disconnect_timeout: int = 300):
         self.rooms: Dict[str, Room] = {}
         self.user_rooms: Dict[int, str] = {}
         self.tasks: Dict[str, asyncio.Task] = {}
@@ -41,6 +44,8 @@ class RoomManager:
         self.game_repo = game_repo
         self.elo_repo = elo_repo
         self.user_service = user_service
+        self.disconnect_timeout = disconnect_timeout
+        self._disconnect_checker_task: Optional[asyncio.Task] = None
 
     # ---- Room Creation ----
 
@@ -162,7 +167,7 @@ class RoomManager:
     # ---- Room Join ----
 
     async def join_room(self, room_id: str, player: PlayerSession) -> Optional[Room]:
-        """Join a manual room. Automatically starts the game."""
+        """Join a manual room. Enters READY phase (both must click start)."""
         room = self.rooms.get(room_id)
         if not room:
             logger.debug(f"Join room failed: room_id={room_id} not found")
@@ -178,23 +183,198 @@ class RoomManager:
         room.add_player(player, "black")
         self.user_rooms[player.user_id] = room_id
 
-        # Start the game
-        room.init_game()
+        # Enter READY phase (both must click start)
+        room.phase = RoomPhase.READY
 
         # Persist
         try:
             await self.room_repo.join_room(room_id, player.user_id, "black")
-            await self.room_repo.start_game(room_id)
         except Exception as e:
             logger.warning(f"Failed to persist room join: {e}")
 
-        # Start room coroutine
-        task = asyncio.create_task(self._run_room(room))
-        self.tasks[room_id] = task
+        # Auto-ready bot players
+        await self._auto_ready_bots(room)
 
         return room
 
-    # ---- Room Coroutine ----
+    # ---- Player Ready (READY phase) ----
+
+    async def player_ready(self, room: Room, user_id: int) -> Optional[str]:
+        """Handle player clicking 'Start' in READY phase.
+
+        Returns:
+            'started' if game starts, 'accepted' if waiting for opponent, None if invalid
+        """
+        if room.phase != RoomPhase.READY:
+            return None
+
+        room.ready_players.add(user_id)
+        logger.info(f"Player {user_id} ready in room {room.room_id}, ready_players={room.ready_players}")
+
+        # Check if both players are ready
+        red_id = room.red_player.user_id if room.red_player else None
+        black_id = room.black_player.user_id if room.black_player else None
+
+        if red_id and black_id and red_id in room.ready_players and black_id in room.ready_players:
+            # Both ready - start the game
+            room.init_game()
+
+            # Persist
+            try:
+                await self.room_repo.start_game(room.room_id)
+            except Exception as e:
+                logger.warning(f"Failed to persist game start: {e}")
+
+            # Start room coroutine
+            task = asyncio.create_task(self._run_room(room))
+            self.tasks[room.room_id] = task
+
+            return "started"
+
+        return "accepted"
+
+    # ---- Rematch (FINISHED phase) ----
+
+    async def rematch(self, room: Room, user_id: int) -> Optional[str]:
+        """Handle player clicking 'Rematch' in FINISHED phase.
+
+        Returns:
+            'started' if new game starts, 'accepted' if waiting for opponent, None if invalid
+        """
+        if room.phase != RoomPhase.FINISHED:
+            return None
+
+        room.rematch_players.add(user_id)
+        logger.info(f"Player {user_id} wants rematch in room {room.room_id}, rematch_players={room.rematch_players}")
+
+        # Check if both players want rematch
+        red_id = room.red_player.user_id if room.red_player else None
+        black_id = room.black_player.user_id if room.black_player else None
+
+        if red_id and black_id and red_id in room.rematch_players and black_id in room.rematch_players:
+            # Both want rematch - swap colors and start new game
+            room.swap_colors()
+            room.init_game()
+
+            # Persist
+            try:
+                await self.room_repo.join_room(room.room_id, room.red_player.user_id, "red")
+                await self.room_repo.join_room(room.room_id, room.black_player.user_id, "black")
+                await self.room_repo.start_game(room.room_id)
+            except Exception as e:
+                logger.warning(f"Failed to persist rematch: {e}")
+
+            # Start room coroutine
+            task = asyncio.create_task(self._run_room(room))
+            self.tasks[room.room_id] = task
+
+            return "started"
+
+        return "accepted"
+
+    # ---- Bot Auto-Actions ----
+
+    async def _auto_ready_bots(self, room: Room) -> None:
+        """Auto-ready bot players when entering READY phase."""
+        for player in [room.red_player, room.black_player]:
+            if player and player.is_bot and player.user_id not in room.ready_players:
+                logger.info(f"Auto-ready bot: user_id={player.user_id} in room={room.room_id}")
+                # Notify human opponent
+                opponent = room.get_opponent(player.user_id)
+                if opponent and opponent.is_connected:
+                    await opponent.send({
+                        "type": "opponent_ready",
+                        "data": {"user_id": player.user_id},
+                    })
+                result = await self.player_ready(room, player.user_id)
+                if result == "started":
+                    return
+
+    async def _auto_rematch_bots(self, room: Room) -> None:
+        """Auto-rematch bot players when game ends."""
+        if room.room_id not in self.rooms:
+            return
+        for player in [room.red_player, room.black_player]:
+            if player and player.is_bot and player.user_id not in room.rematch_players:
+                logger.info(f"Auto-rematch bot: user_id={player.user_id} in room={room.room_id}")
+                # Notify human opponent
+                opponent = room.get_opponent(player.user_id)
+                if opponent and opponent.is_connected:
+                    await opponent.send({
+                        "type": "opponent_rematch",
+                        "data": {"user_id": player.user_id},
+                    })
+                result = await self.rematch(room, player.user_id)
+                if result == "started":
+                    return
+
+    # ---- Leave Room ----
+
+    async def leave_room(self, room: Room, user_id: int) -> None:
+        """Handle a player leaving the room.
+
+        Rule 5: PLAYING state requires resign first; other states leave directly.
+        After leaving, apply Rule 1 (delete room if no real players).
+        """
+        side = room.get_player_side(user_id)
+        if not side:
+            return
+
+        # PLAYING state: must resign first
+        if room.phase == RoomPhase.PLAYING:
+            if side == "red":
+                room.game_state.game_result = GameResult.RED_RESIGN
+            else:
+                room.game_state.game_result = GameResult.BLACK_RESIGN
+            await self._handle_game_over(room, "resign", is_escape=True)
+            room.move_event.set()
+
+        # Remove player from room
+        self._remove_player(room, user_id)
+        self.user_rooms.pop(user_id, None)
+        room.ready_players.discard(user_id)
+        room.rematch_players.discard(user_id)
+
+        # Rule 1: delete room if no real players (unless all bots)
+        if self._should_delete_room(room):
+            await self._cleanup_room(room)
+            return
+
+        # Notify remaining connected players
+        for player in [room.red_player, room.black_player]:
+            if player and player.is_connected:
+                await player.send({
+                    "type": "player_left",
+                    "data": {"user_id": user_id, "phase": room.phase.name.lower()},
+                })
+
+        # Phase transition: if READY and a player left, go back to WAITING
+        if room.phase == RoomPhase.READY:
+            room.phase = RoomPhase.WAITING
+            room.ready_players.clear()
+
+    # ---- Rule 1: Empty Room Check ----
+
+    def _should_delete_room(self, room: Room) -> bool:
+        """Rule 1: Room should be deleted if it has no real (non-bot) players.
+        Exception: don't delete rooms where all players are bots (reserved for auto-play).
+        """
+        players = [p for p in [room.red_player, room.black_player] if p is not None]
+        if not players:
+            return True  # No players at all → delete
+        real_players = [p for p in players if not p.is_bot]
+        if real_players:
+            return False  # Has real players → keep
+        # All players are bots → keep (reserved for auto-play)
+        return False
+
+    def _remove_player(self, room: Room, user_id: int) -> None:
+        """Remove a player from the room."""
+        side = room.get_player_side(user_id)
+        if side == "red":
+            room.red_player = None
+        elif side == "black":
+            room.black_player = None
 
     async def _run_room(self, room: Room) -> None:
         """Room main coroutine - manages the complete game flow."""
@@ -256,13 +436,14 @@ class RoomManager:
                     pass
 
         except asyncio.CancelledError:
-            logger.info(f"Room {room.room_id} coroutine cancelled")
+            logger.info(f"Room {room.room_id} game coroutine cancelled")
         except Exception as e:
             logger.exception(f"Room {room.room_id} error: {e}")
         finally:
             if room.timer:
                 room.timer.stop()
-            await self._cleanup_room(room)
+            # NOTE: Don't cleanup room here - room persists for rematch
+            # Cleanup happens when both players leave (via leave_room)
 
     # ---- Move Handling ----
 
@@ -331,6 +512,8 @@ class RoomManager:
         # Check game over after AI move
         if room.game_state.is_game_over:
             await self._handle_game_over(room, self._get_game_over_reason(room))
+        else:
+            await self._persist_room_state(room)
 
     async def _apply_and_broadcast_move(self, room: Room, move: Move,
                                         msg_type: str) -> None:
@@ -387,10 +570,13 @@ class RoomManager:
         # Check game over
         if room.game_state.is_game_over:
             await self._handle_game_over(room, self._get_game_over_reason(room))
+        else:
+            # Persist game state after each move for server restart recovery
+            await self._persist_room_state(room)
 
     # ---- Game Over ----
 
-    async def _handle_game_over(self, room: Room, reason: str) -> None:
+    async def _handle_game_over(self, room: Room, reason: str, is_escape: bool = False) -> None:
         """Handle game over: determine winner, broadcast, save to DB."""
         room.phase = RoomPhase.FINISHED
         if room.timer:
@@ -405,8 +591,15 @@ class RoomManager:
         elif game_result in (GameResult.BLACK_WINS, "BLACK_WINS"):
             winner = "black"
 
-        # Broadcast game_over
-        logger.info(f"Game over broadcast: room={room.room_id}, winner={winner}, reason={reason}, moves={room.game_state.move_count if room.game_state else 0}")
+        # Save to DB and calculate rating changes
+        red_rating_change, black_rating_change = await self._save_game_result(
+            room, winner, reason, is_escape
+        )
+
+        # Broadcast game_over with rating changes
+        logger.info(f"Game over broadcast: room={room.room_id}, winner={winner}, reason={reason}, "
+                     f"moves={room.game_state.move_count if room.game_state else 0}, "
+                     f"red_change={red_rating_change}, black_change={black_rating_change}")
         await self._broadcast(room, {
             "type": "game_over",
             "data": {
@@ -414,14 +607,22 @@ class RoomManager:
                 "winner": winner,
                 "reason": reason,
                 "total_moves": room.game_state.move_count if room.game_state else 0,
+                "red_rating_change": red_rating_change,
+                "black_rating_change": black_rating_change,
             },
         })
 
-        # Save to DB and update ELO
-        await self._save_game_result(room, winner, reason)
+        # Auto-rematch bot players (skip for escape/leave scenarios)
+        if not is_escape:
+            await self._auto_rematch_bots(room)
 
-    async def _save_game_result(self, room: Room, winner: str, reason: str) -> None:
-        """Save game result to database and update ELO ratings."""
+    async def _save_game_result(self, room: Room, winner: str, reason: str,
+                                 is_escape: bool = False) -> tuple[int, int]:
+        """Save game result to database and update ratings.
+
+        Returns:
+            (red_rating_change, black_rating_change)
+        """
         red_user_id = room.red_player.user_id if room.red_player else None
         black_user_id = room.black_player.user_id if room.black_player else None
 
@@ -457,7 +658,7 @@ class RoomManager:
 
         moves_count = room.game_state.move_count if room.game_state else 0
 
-        # ELO calculation for PvP
+        # Rating calculation for PvP
         red_rating_change = 0
         black_rating_change = 0
         red_rating_before = 1500
@@ -471,12 +672,21 @@ class RoomManager:
             red_rating_before = red_elo["rating"]
             black_rating_before = black_elo["rating"]
 
-            result = 1.0 if winner == "red" else (0.0 if winner == "black" else 0.5)
-            red_rating_change, black_rating_change = UserService.calculate_elo(
-                red_rating_before, black_rating_before, result, red_elo["games_count"],
+            # Use new scoring system
+            red_rating_change, black_rating_change = UserService.calculate_score(
+                red_rating_before, black_rating_before, winner,
+                total_moves=moves_count, is_escape=is_escape,
             )
-            red_rating_after = red_rating_before + red_rating_change
-            black_rating_after = black_rating_before + black_rating_change
+
+            # Apply rating with floor protection
+            red_rating_after = UserService.apply_rating_floor(
+                red_rating_before, red_rating_change,
+                is_escape=is_escape and winner != "red",
+            )
+            black_rating_after = UserService.apply_rating_floor(
+                black_rating_before, black_rating_change,
+                is_escape=is_escape and winner != "black",
+            )
 
             # Update ELO in DB
             await self.elo_repo.update_rating(
@@ -534,6 +744,8 @@ class RoomManager:
         except Exception as e:
             logger.error(f"Failed to update room status: {e}")
 
+        return red_rating_change, black_rating_change
+
     # ---- Timeout ----
 
     async def _handle_timeout(self, room: Room, side: str) -> None:
@@ -548,7 +760,7 @@ class RoomManager:
         else:
             room.game_state.game_result = GameResult.BLACK_TIMEOUT
 
-        await self._handle_game_over(room, "timeout")
+        await self._handle_game_over(room, "timeout", is_escape=True)
         room.move_event.set()
 
     # ---- Resign ----
@@ -611,14 +823,26 @@ class RoomManager:
     # ---- Cleanup ----
 
     async def _cleanup_room(self, room: Room) -> None:
-        """Clean up room resources."""
-        logger.info(f"Cleaning up room={room.room_id}")
-        room.phase = RoomPhase.FINISHED
+        """Delete room and all associated resources (Rule 1)."""
+        logger.info(f"Deleting room={room.room_id}, phase={room.phase.name}, game_count={room.game_count}")
+        # Remove all player associations
         for player in [room.red_player, room.black_player]:
             if player:
                 self.user_rooms.pop(player.user_id, None)
+        # Cancel running game task if any
+        task = self.tasks.pop(room.room_id, None)
+        if task and not task.done():
+            task.cancel()
         self.rooms.pop(room.room_id, None)
-        self.tasks.pop(room.room_id, None)
+
+        # Persist deletion to DB
+        try:
+            if room.game_count > 0:
+                await self.room_repo.finish_game(room.room_id, "draw", -1)
+            else:
+                await self.room_repo.delete(room.room_id)
+        except Exception as e:
+            logger.warning(f"Failed to persist room cleanup for {room.room_id}: {e}")
 
     # ---- Queries ----
 
@@ -643,11 +867,14 @@ class RoomManager:
         """Determine the game over reason from game state."""
         if room.game_state is None:
             return "unknown"
-        gr = room.game_state.game_result
-        if gr in (GameResult.RED_WINS, GameResult.BLACK_WINS):
+        win_reason = room.game_state.win_reason
+        if win_reason == WinReason.CHECKMATE:
             return "checkmate"
-        if gr == GameResult.DRAW:
+        if win_reason == WinReason.STALEMATE:
             return "stalemate"
+        if win_reason == WinReason.RESIGN:
+            return "resign"
+        gr = room.game_state.game_result
         if gr in (GameResult.RED_TIMEOUT, GameResult.BLACK_TIMEOUT):
             return "timeout"
         if gr in (GameResult.RED_RESIGN, GameResult.BLACK_RESIGN):
@@ -665,3 +892,220 @@ class RoomManager:
             "nickname": player.nickname,
             "rating": player.rating,
         }
+
+    # ---- State Persistence & Recovery ----
+
+    # ---- Disconnect Timeout Checker ----
+
+    def start_disconnect_checker(self) -> None:
+        """Start the background task that checks for disconnected player timeouts."""
+        if self._disconnect_checker_task and not self._disconnect_checker_task.done():
+            return
+        self._disconnect_checker_task = asyncio.create_task(self._disconnect_checker_loop())
+        logger.info(f"Disconnect checker started (timeout={self.disconnect_timeout}s)")
+
+    def stop_disconnect_checker(self) -> None:
+        """Stop the disconnect checker."""
+        if self._disconnect_checker_task and not self._disconnect_checker_task.done():
+            self._disconnect_checker_task.cancel()
+        self._disconnect_checker_task = None
+        logger.info("Disconnect checker stopped")
+
+    async def _disconnect_checker_loop(self) -> None:
+        """Periodically check for disconnected players whose timeout has expired."""
+        try:
+            while True:
+                await asyncio.sleep(10)  # Check every 10 seconds
+                await self._check_disconnect_timeouts()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Disconnect checker error: {e}", exc_info=True)
+
+    async def _check_disconnect_timeouts(self) -> None:
+        """Check all rooms for disconnected players whose timeout has expired.
+
+        Rule 4:
+        - PLAYING: real players use game clock timeout (handled by MoveTimer)
+        - Other states: use config disconnect_timeout
+        - After timeout, auto-leave → apply Rule 1
+        """
+        now = time.time()
+        timeout = self.disconnect_timeout
+        expired_players: list[tuple[Room, int]] = []
+
+        for room in list(self.rooms.values()):
+            # PLAYING: game clock handles timeout, skip disconnect checker
+            if room.phase == RoomPhase.PLAYING:
+                continue
+
+            # Rule 1 early check: no real players → delete
+            if self._should_delete_room(room):
+                logger.info(f"Room {room.room_id} has no real players, deleting")
+                await self._cleanup_room(room)
+                continue
+
+            # Check each disconnected real player
+            for player in [room.red_player, room.black_player]:
+                if (player and not player.is_bot
+                        and not player.is_connected
+                        and player.disconnected_at is not None):
+                    elapsed = now - player.disconnected_at
+                    if elapsed >= timeout:
+                        expired_players.append((room, player.user_id))
+
+        # Handle expired players (auto-leave → Rule 1 applied in leave_room)
+        for room, user_id in expired_players:
+            if room.room_id not in self.rooms:
+                continue
+            try:
+                logger.info(f"Disconnect timeout: user={user_id} in room={room.room_id} "
+                           f"(phase={room.phase.name}), auto-leave")
+                await self.leave_room(room, user_id)
+            except Exception as e:
+                logger.error(f"Failed to handle disconnect timeout for user={user_id}: {e}", exc_info=True)
+
+    async def _persist_room_state(self, room: Room) -> None:
+        """Persist current game state to DB for server restart recovery."""
+        if not room.game_state:
+            return
+        try:
+            moves = []
+            for record in room.game_state.history:
+                moves.append({
+                    "from_col": record.move.from_col,
+                    "from_row": record.move.from_row,
+                    "to_col": record.move.to_col,
+                    "to_row": record.move.to_row,
+                })
+            metadata = {
+                "current_player": room.game_state.current_player,
+                "started_at": room.started_at,
+            }
+            if room.timer:
+                metadata["red_remaining"] = room.timer.red_remaining
+                metadata["black_remaining"] = room.timer.black_remaining
+            await self.room_repo.save_game_state(room.room_id, moves, metadata)
+        except Exception as e:
+            logger.warning(f"Failed to persist room state for {room.room_id}: {e}")
+
+    async def restore_active_rooms(self) -> int:
+        """Restore active rooms from DB on server startup.
+        
+        Returns:
+            Number of rooms restored.
+        """
+        try:
+            rows = await self.room_repo.get_active_rooms_with_state()
+        except Exception as e:
+            logger.error(f"Failed to load active rooms from DB: {e}")
+            return 0
+
+        restored = 0
+        for row in rows:
+            try:
+                room_id = str(row["id"])
+                room_type = RoomType.PVP if row["type"] == "pvp" else RoomType.PVE
+                source = RoomSource.MATCH if row.get("source") == "match" else RoomSource.MANUAL
+                initial_time = row.get("initial_time", 600)
+                increment = row.get("increment", 10)
+                difficulty = row.get("ai_difficulty")
+
+                phase = RoomPhase.WAITING if row["status"] == "waiting" else RoomPhase.PLAYING
+
+                room = Room(
+                    room_id=room_id,
+                    room_type=room_type,
+                    source=source,
+                    phase=phase,
+                    initial_time=initial_time,
+                    increment=increment,
+                    difficulty=difficulty,
+                )
+
+                # Restore players (disconnected - they'll reconnect)
+                red_id = row.get("red_user_id")
+                black_id = row.get("black_user_id")
+
+                if red_id:
+                    red_player = PlayerSession(
+                        user_id=red_id,
+                        username=row.get("red_username", "") or f"user_{red_id}",
+                        nickname=row.get("red_nickname", ""),
+                        _conn=None,
+                    )
+                    red_player.side = "red"
+                    red_player.connected = False
+                    red_player.disconnected_at = time.time()  # Server just started
+                    room.red_player = red_player
+                    self.user_rooms[red_id] = room_id
+
+                if black_id:
+                    black_player = PlayerSession(
+                        user_id=black_id,
+                        username=row.get("black_username", "") or f"user_{black_id}",
+                        nickname=row.get("black_nickname", ""),
+                        _conn=None,
+                    )
+                    black_player.side = "black"
+                    black_player.connected = False
+                    black_player.disconnected_at = time.time()  # Server just started
+                    room.black_player = black_player
+                    self.user_rooms[black_id] = room_id
+
+                # Restore game state for playing rooms
+                if phase == RoomPhase.PLAYING:
+                    room.init_game()
+
+                    metadata = row.get("metadata")
+                    if metadata and isinstance(metadata, str):
+                        try:
+                            metadata = json.loads(metadata)
+                        except Exception:
+                            metadata = None
+
+                    # Replay moves from moves_json
+                    moves_json = row.get("moves_json")
+                    if moves_json:
+                        if isinstance(moves_json, str):
+                            try:
+                                moves_json = json.loads(moves_json)
+                            except Exception:
+                                moves_json = None
+                        if moves_json and isinstance(moves_json, list):
+                            for move_data in moves_json:
+                                move = Move(
+                                    from_col=move_data["from_col"],
+                                    from_row=move_data["from_row"],
+                                    to_col=move_data["to_col"],
+                                    to_row=move_data["to_row"],
+                                )
+                                room.game_state.make_move(move)
+
+                    # Restore started_at
+                    if metadata and isinstance(metadata, dict):
+                        room.started_at = metadata.get("started_at", 0)
+
+                    # Set AI side for PvE rooms
+                    if room_type == RoomType.PVE:
+                        if black_id is None:
+                            room.ai_side = Color.BLACK
+                        elif red_id is None:
+                            room.ai_side = Color.RED
+                        else:
+                            room.ai_side = Color.BLACK
+
+                    # Start room coroutine (will wait for players to reconnect)
+                    task = asyncio.create_task(self._run_room(room))
+                    self.tasks[room_id] = task
+
+                self.rooms[room_id] = room
+                restored += 1
+                logger.info(f"Restored room: {room_id}, phase={phase.name}, type={room_type.name}, "
+                           f"red={red_id}, black={black_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to restore room {row.get('id', '?')}: {e}", exc_info=True)
+
+        logger.info(f"Restored {restored} active rooms from DB")
+        return restored

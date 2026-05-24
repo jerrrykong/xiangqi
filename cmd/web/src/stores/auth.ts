@@ -29,6 +29,16 @@ export const useAuthStore = defineStore('auth', () => {
   const connectionState = ref<WSConnectionState>(wsClient.connectionState.value)
   const authState = ref<WSAuthState>('unauthenticated')
 
+  // 追踪之前的认证状态，用于断线重连场景判断
+  const previousAuthState = ref<WSAuthState | null>(null)
+  // 标记是否为断线重连（WS 连接断开后重新认证成功）
+  const isReconnecting = ref(false)
+  // 断线前的游戏阶段（由 App.vue 在 WS 断连时设置）
+  const phaseBeforeDisconnect = ref<string | null>(null)
+
+  // 断线重连时的提示信息队列（由 auth store 收集，由页面消费）
+  const reconnectMessages = ref<string[]>([])
+
   // 计算属性
   const isAuthenticated = computed(() => authState.value !== 'unauthenticated' && authState.value !== 'restoring')
 
@@ -46,7 +56,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 设置认证状态
   function setAuthState(state: WSAuthState) {
+    previousAuthState.value = authState.value
     authState.value = state
+  }
+
+  // 标记断线重连（WS 断连时调用，同时保存断线前的游戏阶段）
+  function markReconnecting(phaseBefore: string | null = null) {
+    if (authState.value !== 'unauthenticated') {
+      isReconnecting.value = true
+      phaseBeforeDisconnect.value = phaseBefore
+      reconnectMessages.value = []
+    }
+  }
+
+  // 消费并清空重连提示
+  function consumeReconnectMessages(): string[] {
+    const msgs = [...reconnectMessages.value]
+    reconnectMessages.value = []
+    isReconnecting.value = false
+    return msgs
   }
 
   // 是否有保存的凭证
@@ -54,19 +82,12 @@ export const useAuthStore = defineStore('auth', () => {
     return !!(token.value || sessionToken.value)
   }
 
-  // 初始化 — 有凭证则连接+认证，无凭证则直接显示登录页
+  // 初始化 — 仅恢复本地用户信息，不自动连接（由 Splash 页面驱动连接流程）
   function init() {
     restoreUser()
-
-    if (hasCredentials()) {
-      console.log('[Auth] Found saved credentials, restoring... (hasToken=', !!token.value, ', hasSession=', !!sessionToken.value, ')')
-      authState.value = 'restoring'
-      authenticateWithCredentials()
-    } else {
-      console.log('[Auth] No saved credentials, showing login page')
-      authState.value = 'unauthenticated'
-      connectionState.value = 'disconnected'
-    }
+    // 初始状态设为 unauthenticated，由 Splash 页面根据本地凭证决定是否连接
+    authState.value = 'unauthenticated'
+    connectionState.value = wsClient.connectionState.value
   }
 
   // 使用保存的凭证连接+认证
@@ -180,6 +201,17 @@ export const useAuthStore = defineStore('auth', () => {
           // 凭证已过期/无效，清除并回到登录页
           clearAuth()
           wsClient.disconnect()
+        } else if (result === 'ok') {
+          // 重连成功，确保状态同步
+          // 如果服务端告知 in_room，state_sync 会自动推送
+          // 如果不在房间，确保回到大厅
+          if (authState.value === 'authenticated') {
+            const currentPath = router.currentRoute.value.path
+            if (currentPath.startsWith('/game/')) {
+              // 用户在游戏页面但服务端说不在房间中 → 回大厅
+              router.replace('/lobby')
+            }
+          }
         }
         // 'retry': 网络临时故障，断开 WS 让重连机制再次触发
         if (result === 'retry') {
@@ -313,7 +345,49 @@ export const useAuthStore = defineStore('auth', () => {
     if (data.session_token) localStorage.setItem('session_token', data.session_token)
     localStorage.setItem('user', JSON.stringify(user.value))
 
-    authState.value = 'authenticated'
+    // 如果服务端告知用户在对局中，恢复 in_room 状态
+    if (data.state === 'in_room' && data.room_id) {
+      authState.value = 'in_room'
+      const roomStore = useRoomStore()
+      if (!roomStore.currentRoom) {
+        const phase = data.room_phase || 'playing'
+        roomStore.setCurrentRoom({
+          roomId: data.room_id,
+          roomType: 'pvp',
+          yourSide: 'red', // 临时值，state_sync 会覆盖
+          phase: phase,
+        })
+        console.log('[Auth] Token auth in_room: set currentRoom, room_id=', data.room_id, 'phase=', phase)
+      }
+
+      // 断线重连提示
+      if (isReconnecting.value && previousAuthState.value === 'in_room') {
+        if (phaseBeforeDisconnect.value === 'playing') {
+          // 之前在 Playing 状态断线
+          if (data.room_phase === 'finished') {
+            reconnectMessages.value.push('对局已经结束！')
+          } else if (data.room_phase !== 'playing') {
+            // 房间还在但已不在 Playing（对手走了/房间回 waiting）
+            reconnectMessages.value.push('你已离开房间')
+          }
+        }
+        // 非Playing断线（waiting/ready/finished）: 正常回到房间，不弹窗
+      }
+
+      // 跳转到 Game 页面（无论 waiting 还是 playing，都显示棋盘+等待/对局状态）
+      if (router.currentRoute.value.path !== `/game/${data.room_id}`) {
+        router.replace(`/game/${data.room_id}`)
+      }
+    } else {
+      // 断线重连：之前在房间内，现在不在了
+      if (isReconnecting.value && previousAuthState.value === 'in_room') {
+        reconnectMessages.value.push('你已离开房间')
+        // 清理房间状态
+        const roomStore = useRoomStore()
+        roomStore.clearRoom()
+      }
+      authState.value = 'authenticated'
+    }
   }
 
   // 处理 Token 刷新结果
@@ -339,6 +413,13 @@ export const useAuthStore = defineStore('auth', () => {
     if (data.state === 'in_room') {
       authState.value = 'in_room'
 
+      // 断线重连提示
+      if (isReconnecting.value && previousAuthState.value === 'in_room') {
+        // 之前在 Playing 状态断线 — 重连后服务端会推送 state_sync，此时还不知道房间 phase
+        // 先标记，等 state_sync 到达后再判断
+        // 但如果 reconnect_result 自身包含 room 信息，可在此处理
+      }
+
       // 设置 roomStore 的 currentRoom，等待后续 state_sync 推送恢复 gameStore
       if (data.room_id) {
         const roomStore = useRoomStore()
@@ -358,8 +439,20 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
     } else if (data.state === 'matchmaking') {
+      // 断线重连：之前在房间内，现在变成匹配中
+      if (isReconnecting.value && previousAuthState.value === 'in_room') {
+        reconnectMessages.value.push('你已离开房间')
+        const roomStore = useRoomStore()
+        roomStore.clearRoom()
+      }
       authState.value = 'matchmaking'
     } else {
+      // 断线重连：之前在房间内，现在不在了
+      if (isReconnecting.value && previousAuthState.value === 'in_room') {
+        reconnectMessages.value.push('你已离开房间')
+        const roomStore = useRoomStore()
+        roomStore.clearRoom()
+      }
       authState.value = 'authenticated'
     }
   }
@@ -427,8 +520,17 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     logout,
     setAuthState,
+    markReconnecting,
+    consumeReconnectMessages,
+    previousAuthState,
+    isReconnecting,
+    reconnectMessages,
+    phaseBeforeDisconnect,
     updateUser,
     updateUserFromWS,
+    authenticate,
+    hasCredentials,
+    clearAuth,
     // 推送处理
     handleAuthResult,
     handleAuthTokenResult,

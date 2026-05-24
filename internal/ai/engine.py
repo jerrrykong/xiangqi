@@ -330,10 +330,13 @@ class ChessAI:
         move_generator = MoveGenerator(board)
         win_checker = WinChecker(board)
         
-        # 生成所有合法着法
-        legal_moves = move_generator.generate_all_moves(turn)
+        # 生成所有伪合法着法并过滤送将着法
+        pseudo_moves = move_generator.generate_all_moves(turn)
+        move_validator = MoveValidator(board)
+        legal_moves = [m for m in pseudo_moves if not move_validator._is_self_check(m.to_move(), turn)]
         _log("debug", "ai_legal_moves_generated",
-             move_count=len(legal_moves))
+             pseudo_count=len(pseudo_moves),
+             legal_count=len(legal_moves))
         
         if not legal_moves:
             # 无合法着法
@@ -447,8 +450,12 @@ class ChessAI:
             new_board.set(move.to_col, move.to_row, piece)
             new_board.set(move.from_col, move.from_row, PIECE_EMPTY)
             
-            # 检查是否将死
+            # 检查送将（己方帅是否暴露）- 非法着法跳过
             new_win_checker = WinChecker(new_board)
+            if new_win_checker.is_king_exposed(turn):
+                continue
+            
+            # 检查是否将死对手
             game_over = new_win_checker.check_game_over(opponent)
             
             if game_over.is_over:
@@ -518,10 +525,13 @@ class ChessAI:
         
         move_generator = MoveGenerator(board)
         win_checker = WinChecker(board)
-        legal_moves = move_generator.generate_all_moves(turn)
+        pseudo_moves = move_generator.generate_all_moves(turn)
+        # 过滤送将着法
+        move_validator = MoveValidator(board)
+        legal_moves = [m for m in pseudo_moves if not move_validator._is_self_check(m.to_move(), turn)]
         opponent = Color.BLACK if turn == Color.RED else Color.RED
         
-        # 无合法着法
+        # 无合法着法（所有着法均送将 → 被将死或困毙）
         if not legal_moves:
             if win_checker.is_king_exposed(turn):
                 # 将死
@@ -551,8 +561,12 @@ class ChessAI:
             new_board.set(move.to_col, move.to_row, piece)
             new_board.set(move.from_col, move.from_row, PIECE_EMPTY)
             
-            # 检查将死
+            # 检查送将（己方帅是否暴露）- 非法着法跳过
             new_win_checker = WinChecker(new_board)
+            if new_win_checker.is_king_exposed(turn):
+                continue
+            
+            # 检查将死
             game_over = new_win_checker.check_game_over(opponent)
             
             if game_over.is_over:

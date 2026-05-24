@@ -354,10 +354,11 @@ def board_from_array(board_array: list[list[int]]) -> Board:
 def board_to_fen(board: Board, turn: Color = Color.RED) -> str:
     """将棋盘转换为 FEN 格式 (简化版)
     
-    注意: 这是简化版 FEN，完整 FEN 比较复杂
+    FEN 行顺序: 从棋盘顶部(row 0, 黑方底线) 到底部(row 9, 红方底线)
+    大写字母 = 红方, 小写字母 = 黑方
     """
     lines = []
-    for row in range(BOARD_ROWS - 1, -1, -1):
+    for row in range(BOARD_ROWS):
         line = ""
         empty_count = 0
         for col in range(BOARD_COLS):
@@ -387,3 +388,60 @@ def board_to_fen(board: Board, turn: Color = Color.RED) -> str:
         lines.append(line)
     
     return "/".join(lines) + f" {('b' if turn == Color.BLACK else 'r')} - - 0 1"
+
+
+def fen_to_board(fen: str) -> Board:
+    """从 FEN 字符串恢复棋盘
+    
+    Args:
+        fen: FEN 格式棋盘字符串
+        
+    Returns:
+        Board 对象
+    """
+    # 只取 FEN 的棋盘部分 (第一个空格之前)
+    board_part = fen.split(" ")[0] if " " in fen else fen
+    rows = board_part.split("/")
+    
+    fen_to_piece_upper = {
+        "K": PIECE_RED_KING,
+        "A": PIECE_RED_ADVISOR,
+        "B": PIECE_RED_BISHOP,
+        "N": PIECE_RED_KNIGHT,
+        "R": PIECE_RED_ROOK,
+        "C": PIECE_RED_CANNON,
+        "P": PIECE_RED_PAWN,
+    }
+    fen_to_piece_lower = {
+        "k": PIECE_BLACK_KING,
+        "a": PIECE_BLACK_ADVISOR,
+        "b": PIECE_BLACK_BISHOP,
+        "n": PIECE_BLACK_KNIGHT,
+        "r": PIECE_BLACK_ROOK,
+        "c": PIECE_BLACK_CANNON,
+        "p": PIECE_BLACK_PAWN,
+    }
+    
+    board = Board()  # Creates empty board
+    # FEN rows go from top (row 0, black side) to bottom (row 9, red side)
+    for i, row_str in enumerate(rows):
+        row = i  # FEN row 0 = board row 0 (black side)
+        col = 0
+        for ch in row_str:
+            if ch.isdigit():
+                # Empty squares
+                count = int(ch)
+                for _ in range(count):
+                    if col < BOARD_COLS:
+                        board.set(col, row, PIECE_EMPTY)
+                        col += 1
+            else:
+                if ch.isupper():
+                    piece = fen_to_piece_upper.get(ch, PIECE_EMPTY)
+                else:
+                    piece = fen_to_piece_lower.get(ch, PIECE_EMPTY)
+                if col < BOARD_COLS:
+                    board.set(col, row, piece)
+                    col += 1
+    
+    return board

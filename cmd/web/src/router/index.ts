@@ -1,10 +1,13 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { wsClient } from '@/ws/client'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/lobby',
+    name: 'Splash',
+    component: () => import('@/pages/Splash.vue'),
+    meta: { requiresAuth: false, title: '中国象棋' },
   },
   {
     path: '/login',
@@ -43,21 +46,31 @@ const router = createRouter({
   routes,
 })
 
-// 路由守卫 — 基于 WS 认证状态
+// 路由守卫 — 基于 WS 连接和认证状态
 router.beforeEach((to) => {
   const authStore = useAuthStore()
   const requiresAuth = to.meta.requiresAuth !== false
+  const isAuthenticated = authStore.isAuthenticated
+  const isWsConnected = wsClient.isConnected
 
-  if (requiresAuth && authStore.authState === 'unauthenticated') {
-    // 需要认证但未认证，跳转到登录页
-    return { name: 'Login', query: { redirect: to.fullPath } }
-  } else if (!requiresAuth && authStore.authState !== 'unauthenticated' && authStore.authState !== 'restoring') {
+  // 需要认证的页面但 WS 未连接 → 重定向到 Splash 触发重连
+  if (requiresAuth && !isWsConnected) {
+    // 保存目标路径，Splash 连接成功后可跳回
+    return { name: 'Splash', query: { redirect: to.fullPath } }
+  }
+
+  if (requiresAuth && !isAuthenticated) {
+    // WS 已连接但认证未完成（不应该发生，但防御性处理）
+    return { name: 'Splash' }
+  }
+
+  if (!requiresAuth && isAuthenticated && to.name !== 'Splash') {
     // 已认证访问登录/注册页，跳转到大厅
     return { name: 'Lobby' }
-  } else {
-    // restoring 状态：不重定向，让页面显示 loading 等待凭证恢复结果
-    return
   }
+
+  // 启动页始终可访问（由组件自身决定行为）
+  return
 })
 
 export default router

@@ -19,8 +19,11 @@ const rankings = ref<any[]>([])
 const history = ref<any[]>([])
 const isLoading = ref(false)
 
+// 用户是否处于房间中（刷新恢复场景）
+const isInRoom = computed(() => authStore.authState === 'in_room')
+
 // PvP 创建房间等待状态
-const isWaitingForOpponent = ref(false)
+const isWaitingForOpponent = ref(isInRoom.value)
 const isCreatingRoom = ref(false)
 
 // PvE 难度选择
@@ -44,14 +47,28 @@ watch(() => matchStore.isMatchmaking, (val, oldVal) => {
 })
 
 // 监听游戏开始 → 跳转
-watch(() => gameStore.isGameStarted, (val) => {
+watch(() => gameStore.isGameStarted, (val, oldVal) => {
+  console.log('[Lobby] isGameStarted changed:', oldVal, '->', val, 'currentRoom=', !!roomStore.currentRoom)
   if (val && roomStore.currentRoom) {
     isWaitingForOpponent.value = false
+    console.log('[Lobby] Navigating to game:', roomStore.currentRoom.roomId)
     router.push(`/game/${roomStore.currentRoom.roomId}`)
   }
 })
 
 onMounted(async () => {
+  // 如果用户在房间中（WAITING状态恢复），只显示等待卡片，不发大厅请求
+  if (isInRoom.value) return
+
+  // 消费断线重连提示
+  const messages = authStore.consumeReconnectMessages()
+  if (messages.length > 0) {
+    ElMessageBox.alert(messages.join('\n'), '提示', {
+      confirmButtonText: '确定',
+      type: 'warning',
+    })
+  }
+
   await Promise.all([fetchRankings(), fetchHistory()])
 })
 
@@ -215,8 +232,8 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
               </div>
             </div>
 
-            <!-- 操作按钮 -->
-            <div class="action-card card">
+            <!-- 操作按钮 (仅在非房间状态下显示) -->
+            <div v-if="!isInRoom" class="action-card card">
               <el-button type="primary" size="large" class="full-width" :loading="isCreatingRoom" @click="handleCreateRoom">
                 创建PvP房间
               </el-button>
@@ -228,8 +245,8 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
               </el-button>
             </div>
 
-            <!-- 快速匹配 -->
-            <div class="match-card card">
+            <!-- 快速匹配 (仅在非房间状态下显示) -->
+            <div v-if="!isInRoom" class="match-card card">
               <h3>快速匹配</h3>
               <p class="text-muted">自动匹配实力相近的对手，开始一场紧张刺激的对局！</p>
               <el-button
@@ -252,8 +269,8 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
               </div>
             </div>
 
-            <!-- 等待对手弹窗提示 -->
-            <div v-if="isWaitingForOpponent" class="waiting-card card">
+            <!-- 等待对手 (创建房间后 或 刷新恢复) -->
+            <div v-if="isWaitingForOpponent || isInRoom" class="waiting-card card">
               <h3>等待对手加入</h3>
               <p class="text-muted">房间号: {{ roomStore.currentRoom?.roomId?.slice(0, 8) }}</p>
               <div class="waiting-animation">
@@ -266,8 +283,8 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
             </div>
           </div>
 
-          <!-- 中间：排行榜 -->
-          <div class="rankings-card card">
+          <!-- 中间：排行榜 (仅在非房间状态下显示) -->
+          <div v-if="!isInRoom" class="rankings-card card">
             <h3 class="section-title">
               <span class="icon">🏆</span> 排行榜
             </h3>
@@ -288,8 +305,8 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
             </div>
           </div>
 
-          <!-- 右侧：最近对局 -->
-          <div class="history-card card">
+          <!-- 右侧：最近对局 (仅在非房间状态下显示) -->
+          <div v-if="!isInRoom" class="history-card card">
             <h3 class="section-title">
               <span class="icon">📜</span> 最近对局
             </h3>

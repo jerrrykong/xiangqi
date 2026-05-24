@@ -278,12 +278,12 @@ class TestBoardAfterMove:
     def test_capture(self):
         """测试吃子"""
         # 创建特殊局面: 黑卒在红兵前方一格 (row 5 vs row 6)
-        # 棋盘: row 9=黑方底(顶), row 0=红方底(底)
+        # 注意：将帅放在不同列以避免飞将检测
         board_arr = [
             [-1]*9 for _ in range(10)
         ]
-        board_arr[9][4] = 10   # 黑将 (row 9, 黑方底线)
-        board_arr[0][4] = 0    # 红将 (row 0, 红方底线)
+        board_arr[9][4] = 10   # 黑将 (row 9, col 4)
+        board_arr[0][3] = 0    # 红将 (row 0, col 3) — 不同列避免飞将
         board_arr[5][0] = 16   # 黑卒 (row 5)
         board_arr[6][0] = 6    # 红兵 (row 6)
         

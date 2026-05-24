@@ -15,16 +15,15 @@ export function registerGameHandlers(): void {
   messageRouter.on(WSRespType.AI_MOVE, (data) => gameStore.handleAIMove(data))
   messageRouter.on(WSRespType.GAME_OVER, (data) => {
     gameStore.handleGameOver(data)
-    authStateOnGameOver(authStore)
+    // 不再自动退出 in_room 状态 - 房间持续存在用于 rematch
   })
   messageRouter.on(WSRespType.DRAW_REQUEST, (data) => gameStore.handleDrawRequest(data))
   messageRouter.on(WSRespType.DRAW_RESULT, (data) => gameStore.handleDrawResult(data))
   messageRouter.on(WSRespType.STATE_SYNC, (data) => gameStore.handleStateSync(data))
-}
-
-function authStateOnGameOver(authStore: ReturnType<typeof useAuthStore>) {
-  // 游戏结束后回到 authenticated 状态
-  if (authStore.authState === 'in_room') {
-    authStore.setAuthState('authenticated')
-  }
+  messageRouter.on(WSRespType.READY_ACCEPTED, () => {
+    // Server confirmed our ready - nothing extra to do
+  })
+  messageRouter.on(WSRespType.REMATCH_ACCEPTED, () => {
+    // Server confirmed our rematch request - nothing extra to do
+  })
 }

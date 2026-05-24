@@ -4,8 +4,10 @@ Manages all active WebSocket connections, lifecycle, and heartbeat.
 """
 
 import asyncio
+import json
 import logging
 import time
+import uuid
 from typing import Optional
 
 from fastapi import WebSocket
@@ -13,6 +15,13 @@ from fastapi import WebSocket
 from gateway.connection_state import ConnectionState, can_transition
 
 logger = logging.getLogger(__name__)
+
+
+def _json_default(obj):
+    """Custom JSON serializer supporting UUID and other non-serializable types."""
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 class ClientConnection:
@@ -35,7 +44,7 @@ class ClientConnection:
         if not self._connected:
             return False
         try:
-            await self.ws.send_json(data)
+            await self.ws.send_text(json.dumps(data, default=_json_default))
             return True
         except Exception as e:
             logger.warning(f"Send failed for conn={self.conn_id}: {e}")

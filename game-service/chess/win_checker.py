@@ -53,11 +53,8 @@ class WinChecker:
         Returns:
             GameOverResult
         """
-        # 检查是否有合法着法
-        legal_moves = self.move_generator.generate_all_moves(color_to_move)
-        
-        if len(legal_moves) == 0:
-            # 无合法着法
+        # 检查是否有真正合法着法（过滤送将着法）
+        if not self.has_legal_moves(color_to_move):
             if self.is_king_exposed(color_to_move):
                 # 将死
                 winner = Color.BLACK if color_to_move == Color.RED else Color.RED
@@ -82,6 +79,8 @@ class WinChecker:
     def is_king_exposed(self, color: Color) -> bool:
         """检查指定颜色的将/帅是否被将军
         
+        包括飞将（将帅对面）检测
+        
         Args:
             color: 棋子颜色
             
@@ -94,6 +93,22 @@ class WinChecker:
         
         king_col, king_row = king_pos
         opponent = Color.BLACK if color == Color.RED else Color.RED
+        
+        # 检查飞将：将帅同列且中间无棋子阻隔
+        opponent_king_pos = self.board.find_king(opponent)
+        if opponent_king_pos is not None:
+            opp_col, opp_row = opponent_king_pos
+            if opp_col == king_col:
+                # 同列，检查中间是否有棋子
+                min_row = min(king_row, opp_row)
+                max_row = max(king_row, opp_row)
+                blocked = False
+                for r in range(min_row + 1, max_row):
+                    if self.board.get(king_col, r) >= 0:
+                        blocked = True
+                        break
+                if not blocked:
+                    return True
         
         # 检查所有对方棋子是否能吃到将/帅
         for row in range(10):
@@ -108,7 +123,7 @@ class WinChecker:
         return False
 
     def has_legal_moves(self, color: Color) -> bool:
-        """检查指定颜色是否有合法着法
+        """检查指定颜色是否有合法着法（过滤送将着法）
         
         Args:
             color: 棋子颜色
@@ -116,8 +131,12 @@ class WinChecker:
         Returns:
             True=有合法着法, False=无合法着法
         """
-        legal_moves = self.move_generator.generate_all_moves(color)
-        return len(legal_moves) > 0
+        pseudo_legal_moves = self.move_generator.generate_all_moves(color)
+        for move in pseudo_legal_moves:
+            is_valid, _ = self.move_validator.is_valid(move, color)
+            if is_valid:
+                return True
+        return False
 
     def get_checking_pieces(self, color: Color) -> list[tuple[int, int, int]]:
         """获取正在将军的对方棋子

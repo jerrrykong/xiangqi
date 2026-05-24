@@ -37,6 +37,8 @@ class RoomHandler:
             "game_resign": self._game_resign,
             "game_draw_req": self._game_draw_req,
             "game_draw_ans": self._game_draw_ans,
+            "game_ready": self._game_ready,
+            "game_rematch": self._game_rematch,
         }
         handler = handlers.get(msg.get("type", ""))
         if handler:
@@ -56,13 +58,21 @@ class RoomHandler:
 
         # Check if user already in room
         if self.room_manager.is_user_in_room(conn.user_id):
-            logger.warning(f"Room create rejected: user={conn.user_id} already in room")
-            await conn.send({
-                "type": "error",
-                "seq": seq,
-                "data": {"code": 3004, "message": "Already in a room"},
-            })
-            return
+            # Allow creating if current room is FINISHED or WAITING — auto-leave first
+            current_room = self.room_manager.get_user_room(conn.user_id)
+            if current_room and current_room.phase in (RoomPhase.FINISHED, RoomPhase.WAITING):
+                logger.info(f"Auto-leave {current_room.phase.name} room={current_room.room_id} for user={conn.user_id} before creating new room")
+                await self.room_manager.leave_room(current_room, conn.user_id)
+                conn.set_state(ConnectionState.AUTHENTICATED)
+                conn.room_id = None
+            else:
+                logger.warning(f"Room create rejected: user={conn.user_id} already in room")
+                await conn.send({
+                    "type": "error",
+                    "seq": seq,
+                    "data": {"code": 3004, "message": "Already in a room"},
+                })
+                return
 
         room_type = data.get("room_type", "pvp")
         difficulty = data.get("difficulty", 3)
@@ -152,13 +162,21 @@ class RoomHandler:
         room_id = data.get("room_id", "")
 
         if self.room_manager.is_user_in_room(conn.user_id):
-            logger.warning(f"Room join rejected: user={conn.user_id} already in room")
-            await conn.send({
-                "type": "error",
-                "seq": seq,
-                "data": {"code": 3004, "message": "Already in a room"},
-            })
-            return
+            # Allow joining if current room is FINISHED or WAITING — auto-leave first
+            current_room = self.room_manager.get_user_room(conn.user_id)
+            if current_room and current_room.phase in (RoomPhase.FINISHED, RoomPhase.WAITING):
+                logger.info(f"Auto-leave {current_room.phase.name} room={current_room.room_id} for user={conn.user_id} before joining new room")
+                await self.room_manager.leave_room(current_room, conn.user_id)
+                conn.set_state(ConnectionState.AUTHENTICATED)
+                conn.room_id = None
+            else:
+                logger.warning(f"Room join rejected: user={conn.user_id} already in active room")
+                await conn.send({
+                    "type": "error",
+                    "seq": seq,
+                    "data": {"code": 3004, "message": "Already in a room"},
+                })
+                return
 
         player = self._make_player_session(conn, "black")
         room = await self.room_manager.join_room(room_id, player)
@@ -175,7 +193,22 @@ class RoomHandler:
         conn.set_state(ConnectionState.IN_ROOM)
         conn.room_id = room_id
 
-        logger.info(f"Room joined: room_id={room_id}, user={conn.username}(id={conn.user_id}), game starting")
+        logger.info(f"Room joined: room_id={room_id}, user={conn.username}(id={conn.user_id}), entering READY phase")
+
+        # Notify the creator (red player) that an opponent has joined
+        red_player = room.red_player
+        if red_player and red_player.is_connected:
+            await red_player.send({
+                "type": "player_joined",
+                "data": {
+                    "user_id": conn.user_id,
+                    "username": conn.username or "",
+                    "nickname": "",
+                    "side": "black",
+                    "rating": 1500,
+                    "phase": "ready",
+                },
+            })
 
         # Send room_joined response to the joining player
         await conn.send({
@@ -185,9 +218,12 @@ class RoomHandler:
                 "room_id": room_id,
                 "room_type": "pvp",
                 "your_side": "black",
+                "phase": "ready",
                 "players": [
-                    self.room_manager._player_info(room.red_player),
-                    self.room_manager._player_info(room.black_player),
+                    info for info in [
+                        self.room_manager._player_info(room.red_player),
+                        self.room_manager._player_info(room.black_player),
+                    ] if info is not None
                 ],
             },
         })
@@ -203,7 +239,7 @@ class RoomHandler:
         room = self.room_manager.get_user_room(conn.user_id)
 
         if not room:
-            # Room already cleaned up (e.g. game over) - just confirm leave
+            # Room already cleaned up - just confirm leave
             logger.info(f"Room leave: user={conn.user_id} not in any room (already cleaned up), confirming leave")
             conn.set_state(ConnectionState.AUTHENTICATED)
             conn.room_id = None
@@ -214,33 +250,8 @@ class RoomHandler:
             })
             return
 
-        if room.phase == RoomPhase.PLAYING:
-            # In a game - resign automatically
-            logger.info(f"Player {conn.username}(id={conn.user_id}) leaving during game, auto-resign, room={room.room_id}")
-            await self.room_manager.resign(room, conn.user_id)
-        elif room.phase == RoomPhase.WAITING:
-            # In waiting room - just leave
-            # If red (creator) leaves, room is destroyed
-            side = room.get_player_side(conn.user_id)
-            logger.info(f"Player {conn.username}(id={conn.user_id}) leaving waiting room, side={side}, room={room.room_id}")
-            if side == "red":
-                # Notify opponent if any
-                opponent = room.get_opponent(conn.user_id)
-                if opponent and opponent.is_connected:
-                    await opponent.send({
-                        "type": "room_removed",
-                        "data": {"reason": "creator_left"},
-                    })
-                # Clean up
-                self.room_manager.user_rooms.pop(conn.user_id, None)
-                self.room_manager.rooms.pop(room.room_id, None)
-                try:
-                    await self.room_manager.room_repo.delete(room.room_id)
-                except Exception:
-                    pass
-
-                # 广播房间变更通知
-                await self._broadcast_room_update()
+        # Use room_manager's leave_room which handles all phase logic
+        await self.room_manager.leave_room(room, conn.user_id)
 
         conn.set_state(ConnectionState.AUTHENTICATED)
         conn.room_id = None
@@ -250,6 +261,9 @@ class RoomHandler:
             "seq": seq,
             "data": {"room_id": room.room_id},
         })
+
+        # Broadcast room update if needed
+        await self._broadcast_room_update()
 
     async def _game_move(self, conn: ClientConnection, msg: dict) -> None:
         """Handle game_move message."""
@@ -327,6 +341,82 @@ class RoomHandler:
             return
 
         await self.room_manager.draw_answer(room, conn.user_id, accept)
+
+    async def _game_ready(self, conn: ClientConnection, msg: dict) -> None:
+        """Handle game_ready message - player clicks 'Start' in READY phase."""
+        seq = msg.get("seq", 0)
+        room = self.room_manager.get_user_room(conn.user_id)
+        if not room or room.phase != RoomPhase.READY:
+            await conn.send({
+                "type": "error",
+                "seq": seq,
+                "data": {"code": 4004, "message": "Not in ready phase"},
+            })
+            return
+
+        result = await self.room_manager.player_ready(room, conn.user_id)
+
+        if result == "started":
+            # Game started - game_start will be broadcast by _run_room
+            logger.info(f"Both players ready, game starting in room={room.room_id}")
+        elif result == "accepted":
+            # This player is ready, waiting for opponent
+            await conn.send({
+                "type": "ready_accepted",
+                "seq": seq,
+                "data": {},
+            })
+            # Notify opponent
+            opponent = room.get_opponent(conn.user_id)
+            if opponent and opponent.is_connected:
+                await opponent.send({
+                    "type": "opponent_ready",
+                    "data": {"user_id": conn.user_id},
+                })
+        else:
+            await conn.send({
+                "type": "error",
+                "seq": seq,
+                "data": {"code": 4005, "message": "Cannot ready now"},
+            })
+
+    async def _game_rematch(self, conn: ClientConnection, msg: dict) -> None:
+        """Handle game_rematch message - player clicks 'Rematch' in FINISHED phase."""
+        seq = msg.get("seq", 0)
+        room = self.room_manager.get_user_room(conn.user_id)
+        if not room or room.phase != RoomPhase.FINISHED:
+            await conn.send({
+                "type": "error",
+                "seq": seq,
+                "data": {"code": 4006, "message": "Not in finished phase"},
+            })
+            return
+
+        result = await self.room_manager.rematch(room, conn.user_id)
+
+        if result == "started":
+            # Rematch started - game_start will be broadcast by _run_room
+            logger.info(f"Both players rematch, new game starting in room={room.room_id}")
+        elif result == "accepted":
+            # This player wants rematch, waiting for opponent
+            await conn.send({
+                "type": "rematch_accepted",
+                "seq": seq,
+                "data": {},
+            })
+            # Notify opponent
+            opponent = room.get_opponent(conn.user_id)
+            if opponent and opponent.is_connected:
+                await opponent.send({
+                    "type": "opponent_rematch",
+                    "data": {"user_id": conn.user_id},
+                })
+        else:
+            await conn.send({
+                "type": "error",
+                "seq": seq,
+                "data": {"code": 4007, "message": "Cannot rematch now"},
+            })
 
     # ---- Helpers ----
 

@@ -61,7 +61,7 @@ const SOUND_MAP: SoundConfig = {
   draw_voice: { file: 'voice_draw.wav',        category: 'voice', volume: 0.9 },  // 和棋
 }
 
-type SoundKey = keyof typeof SOUND_MAP
+export type SoundKey = keyof typeof SOUND_MAP
 
 export class SoundManager {
   private audioCache: Map<string, HTMLAudioElement> = new Map()

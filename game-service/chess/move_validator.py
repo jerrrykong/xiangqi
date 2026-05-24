@@ -139,13 +139,28 @@ class MoveValidator:
         return self._is_king_exposed(temp_board, color)
 
     def _is_king_exposed(self, board: Board, color: Color) -> bool:
-        """检查指定颜色的将/帅是否被将军"""
+        """检查指定颜色的将/帅是否被将军（包括飞将检测）"""
         king_pos = board.find_king(color)
         if king_pos is None:
             return False
         
         king_col, king_row = king_pos
         opponent = Color.BLACK if color == Color.RED else Color.RED
+        
+        # 检查飞将：将帅同列且中间无棋子阻隔
+        opponent_king_pos = board.find_king(opponent)
+        if opponent_king_pos is not None:
+            opp_col, opp_row = opponent_king_pos
+            if opp_col == king_col:
+                min_row = min(king_row, opp_row)
+                max_row = max(king_row, opp_row)
+                blocked = False
+                for r in range(min_row + 1, max_row):
+                    if board.get(king_col, r) >= 0:
+                        blocked = True
+                        break
+                if not blocked:
+                    return True
         
         # 检查所有对方棋子是否能吃到将/帅
         for row in range(10):

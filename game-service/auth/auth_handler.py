@@ -193,6 +193,23 @@ class AuthHandler:
         
         logger.info(f"User {conn.username}(id={conn.user_id}) token auth success, session_token={session_token[:8]}..., conn={conn.conn_id}")
 
+        # Check if user has an active room (reconnection scenario)
+        user_state = "authenticated"
+        user_room_id = None
+        user_room_phase = None
+        room_manager_ref = getattr(self.connection_manager, '_room_manager_ref', None)
+        if room_manager_ref:
+            room = room_manager_ref.get_user_room(claims.user_id)
+            if room:
+                from room.room import RoomPhase
+                if room.phase in (RoomPhase.WAITING, RoomPhase.READY, RoomPhase.PLAYING, RoomPhase.FINISHED):
+                    user_state = "in_room"
+                    user_room_id = room.room_id
+                    user_room_phase = room.phase.name.lower()
+                    conn.room_id = room.room_id
+                    conn.set_state(ConnectionState.IN_ROOM)
+                    logger.info(f"User {conn.username}(id={conn.user_id}) token auth: found active room={room.room_id}, phase={user_room_phase}, state=in_room")
+
         await conn.send({
             "type": "auth_token_result",
             "seq": seq,
@@ -205,8 +222,15 @@ class AuthHandler:
                 "games_count": user.get("games_count", 0),
                 "is_admin": claims.is_admin,
                 "session_token": session_token,
+                "state": user_state,
+                "room_id": user_room_id,
+                "room_phase": user_room_phase,
             },
         })
+
+        # If user is in a room, restore room state (reconnect)
+        if user_state == "in_room" and user_room_id:
+            await self._restore_room_state(conn)
 
     async def _handle_refresh(self, conn: ClientConnection, msg: dict) -> None:
         """Handle auth_refresh - refresh access token."""
@@ -265,6 +289,16 @@ class AuthHandler:
         in_room = bool(original_conn.room_id) and original_conn.state == ConnectionState.IN_ROOM
 
         if in_room:
+            # Verify room still exists
+            room_manager_ref = getattr(self.connection_manager, '_room_manager_ref', None)
+            if room_manager_ref:
+                room = room_manager_ref.get_user_room(conn.user_id)
+                if not room:
+                    # Room no longer exists
+                    logger.info(f"Reconnect: user={conn.username}(id={conn.user_id}) room_id={original_conn.room_id} no longer exists")
+                    in_room = False
+
+        if in_room:
             conn.room_id = original_conn.room_id
             conn.set_state(ConnectionState.IN_ROOM)
         else:
@@ -318,9 +352,9 @@ class AuthHandler:
             player.reconnect(conn)
             logger.info(f"Reconnect: player {conn.username}(id={conn.user_id}) reconnected to room={room.room_id}, side={side}")
 
-        # Send state_sync with full game state
+        # Build state_sync data
         fen = board_to_fen(room.game_state.board) if room.game_state else ""
-        current_side = "red" if room.game_state.current_player == 0 else "black" if room.game_state else "red"
+        current_side = "red" if room.game_state and room.game_state.current_player == 0 else "black" if room.game_state else "red"
 
         state_data = {
             "room_id": room.room_id,
@@ -334,12 +368,14 @@ class AuthHandler:
             "red_remaining_time": room.timer.red_remaining if room.timer else room.initial_time,
             "black_remaining_time": room.timer.black_remaining if room.timer else room.initial_time,
             "moves": [],
+            "ready_players": list(room.ready_players),
+            "rematch_players": list(room.rematch_players),
         }
 
         # Build moves list from game history
-        if room.game_state and hasattr(room.game_state, 'recorder'):
+        if room.game_state and hasattr(room.game_state, 'history'):
             try:
-                for record in room.game_state.recorder.moves:
+                for record in room.game_state.history:
                     state_data["moves"].append({
                         "from_pos": [record.move.from_row, record.move.from_col],
                         "to_pos": [record.move.to_row, record.move.to_col],

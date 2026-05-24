@@ -4,6 +4,7 @@ import type { PlayerJoinedData, RoomListResultData, GameStartData } from '@/ws/t
 import { wsClient } from '@/ws/client'
 import { WSMsgType } from '@/ws/types'
 import { useAuthStore } from './auth'
+import { useGameStore } from './game'
 
 export const useRoomStore = defineStore('room', () => {
   // 状态
@@ -12,7 +13,7 @@ export const useRoomStore = defineStore('room', () => {
   const currentRoom = ref<{
     roomId: string
     roomType: string    // pvp/pve
-    phase: string       // waiting/playing/finished
+    phase: string       // waiting/ready/playing/finished
     yourSide: 'red' | 'black'
     opponent?: {
       userId: number
@@ -45,14 +46,18 @@ export const useRoomStore = defineStore('room', () => {
     try {
       console.log('[Room] Creating room, type=', roomType, 'difficulty=', difficulty)
       const result = await wsClient.request(WSMsgType.ROOM_CREATE, { room_type: roomType, difficulty })
+      const phase = result.status === 'playing' ? 'playing' : 'waiting'
       currentRoom.value = {
         roomId: result.room_id,
         roomType: result.room_type || roomType,
-        phase: result.status === 'playing' ? 'playing' : 'waiting',
+        phase,
         yourSide: result.your_side || 'red', // 创建者默认红方
         difficulty,
       }
-      console.log('[Room] Room created:', result.room_id, 'phase=', currentRoom.value.phase, 'side=', currentRoom.value.yourSide)
+      console.log('[Room] Room created:', result.room_id, 'phase=', phase, 'side=', currentRoom.value.yourSide)
+      // 同步 gameStore.phase
+      const gameStore = useGameStore()
+      gameStore.phase = phase
       // 更新认证状态
       const authStore = useAuthStore()
       authStore.setAuthState('in_room')
@@ -76,8 +81,9 @@ export const useRoomStore = defineStore('room', () => {
       let opponent: { userId: number; username: string; rating?: number } | undefined
 
       if (result.players) {
-        const me = result.players.find((p: any) => p.user_id === userId)
-        const other = result.players.find((p: any) => p.user_id !== userId)
+        const validPlayers = result.players.filter((p: any) => p != null)
+        const me = validPlayers.find((p: any) => p.user_id === userId)
+        const other = validPlayers.find((p: any) => p.user_id !== userId)
         if (me) yourSide = me.side === 'red' ? 'red' : 'black'
         if (other) {
           opponent = {
@@ -88,13 +94,18 @@ export const useRoomStore = defineStore('room', () => {
         }
       }
 
+      const phase = result.phase || 'ready'
       currentRoom.value = {
         roomId: result.room_id,
         roomType: result.room_type || 'pvp',
-        phase: 'playing', // PvP 手动房间加入即开始
+        phase,
         yourSide,
         opponent,
       }
+
+      // 同步 gameStore.phase（加入后进入 ready 阶段）
+      const gameStore = useGameStore()
+      gameStore.phase = phase
 
       // 更新认证状态
       authStore.setAuthState('in_room')
@@ -127,13 +138,17 @@ export const useRoomStore = defineStore('room', () => {
     opponent?: { userId: number; username: string; rating?: number }
     phase?: string
   }) {
+    const phase = room.phase || 'waiting'
     currentRoom.value = {
       roomId: room.roomId,
       roomType: room.roomType || 'pvp',
-      phase: room.phase || 'waiting',
+      phase,
       yourSide: room.yourSide,
       opponent: room.opponent,
     }
+    // 同步 gameStore.phase
+    const gameStore = useGameStore()
+    gameStore.phase = phase
   }
 
   // ===== 推送消息处理 =====
@@ -147,22 +162,47 @@ export const useRoomStore = defineStore('room', () => {
       username: data.username,
       rating: data.rating,
     }
+    // 对手加入后进入 ready 阶段
+    if (data.phase === 'ready') {
+      currentRoom.value.phase = 'ready'
+      // 同步更新 gameStore.phase，因为 Game.vue 使用 gameStore.phase 判断阶段
+      const gameStore = useGameStore()
+      gameStore.phase = 'ready'
+    }
   }
 
   // 处理对手离开
   function handlePlayerLeft(_data: any) {
     if (!currentRoom.value) return
     currentRoom.value.opponent = undefined
-    currentRoom.value.phase = 'waiting'
+    if (_data?.phase === 'waiting') {
+      currentRoom.value.phase = 'waiting'
+    }
   }
 
   // 处理游戏开始
-  function handleGameStart(_data: GameStartData) {
+  function handleGameStart(data: GameStartData) {
     if (!currentRoom.value) return
     console.log('[Room] Game started, room=', currentRoom.value.roomId)
     currentRoom.value.phase = 'playing'
     const authStore = useAuthStore()
     authStore.setAuthState('in_room')
+
+    // 从 game_start 数据恢复对手信息
+    const myUserId = authStore.user?.user_id
+    if (data.red_player && data.red_player.user_id !== myUserId) {
+      currentRoom.value.opponent = {
+        userId: data.red_player.user_id,
+        username: data.red_player.username,
+        rating: data.red_player.rating,
+      }
+    } else if (data.black_player && data.black_player.user_id !== myUserId) {
+      currentRoom.value.opponent = {
+        userId: data.black_player.user_id,
+        username: data.black_player.username,
+        rating: data.black_player.rating,
+      }
+    }
   }
 
   // 处理房间列表结果 (推送)

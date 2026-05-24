@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS rooms (
     created_by BIGINT NOT NULL REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     started_at TIMESTAMP,
-    ended_at TIMESTAMP
+    ended_at TIMESTAMP,
+    moves_json JSONB,
+    metadata JSONB
 );
 
 -- Game history table

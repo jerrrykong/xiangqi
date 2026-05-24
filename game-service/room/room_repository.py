@@ -187,6 +187,29 @@ class RoomRepository:
                 "SELECT * FROM rooms WHERE status IN ('waiting', 'playing')",
             )
 
+    async def save_game_state(self, room_id: str, moves_json: list[dict],
+                               metadata: Optional[dict] = None) -> None:
+        """Save game state (moves + metadata) for room persistence."""
+        import json
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE rooms SET moves_json = $2, metadata = $3 WHERE id = $1""",
+                room_id, json.dumps(moves_json), json.dumps(metadata) if metadata else None,
+            )
+
+    async def get_active_rooms_with_state(self) -> list[asyncpg.Record]:
+        """Get all active rooms with full state data (moves_json, metadata)."""
+        async with self._pool.acquire() as conn:
+            return await conn.fetch(
+                """SELECT r.*, 
+                          ru.username as red_username, ru.nickname as red_nickname,
+                          bu.username as black_username, bu.nickname as black_nickname
+                   FROM rooms r
+                   LEFT JOIN users ru ON ru.id = r.red_user_id
+                   LEFT JOIN users bu ON bu.id = r.black_user_id
+                   WHERE r.status IN ('waiting', 'playing')""",
+            )
+
     async def delete(self, room_id: str) -> None:
         """Delete a room."""
         async with self._pool.acquire() as conn:

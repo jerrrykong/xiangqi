@@ -28,9 +28,10 @@ STATE_ALLOWED_MESSAGES: dict[ConnectionState, set[str]] = {
         "ping",
     },
     ConnectionState.IN_ROOM: {
-        "user_get_me",
+        "user_get_me", "user_get_rankings", "user_get_history",
         "game_move", "game_resign", "game_draw_req", "game_draw_ans",
-        "room_leave",
+        "game_ready", "game_rematch",
+        "room_leave", "room_list",
         "reconnect",
         "ping",
     },

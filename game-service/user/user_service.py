@@ -119,7 +119,7 @@ class UserService:
     @staticmethod
     def calculate_elo(rating_a: int, rating_b: int, result: float,
                       games_a: int) -> tuple[int, int]:
-        """Calculate ELO rating changes.
+        """Calculate ELO rating changes (legacy, kept for reference).
 
         Args:
             rating_a: Player A's current rating
@@ -145,3 +145,97 @@ class UserService:
         change_b = -change_a
 
         return change_a, change_b
+
+    @staticmethod
+    def calculate_score(red_rating: int, black_rating: int, winner: str,
+                        total_moves: int = 0, is_escape: bool = False) -> tuple[int, int]:
+        """Calculate rating changes based on the custom scoring rules.
+
+        Rules:
+        - Low-rated winner: diff>100 → +diff/2, diff 10-99 → +10+diff/10, diff<10 → +10
+        - High-rated winner: diff>200 → +0, diff 100-199 → +2, diff 10-99 → +5, diff<10 → +10
+        - Draw with diff>100: low-rated gets diff/4, high-rated loses diff/4
+        - Floor: 1000 (normal loss cannot go below)
+        - Short game (<10 moves): no score change (but escape penalty still applies)
+        - Escape/timeout: loser gets extra -50 (not limited by floor)
+
+        Args:
+            red_rating: Red player's current rating
+            black_rating: Black player's current rating
+            winner: 'red', 'black', or 'draw'
+            total_moves: Total moves in the game
+            is_escape: Whether the loser escaped/timed out/force-closed
+
+        Returns:
+            (red_change, black_change) - rating changes for both players
+        """
+        diff = abs(red_rating - black_rating)
+
+        # Draw
+        if winner == 'draw':
+            if total_moves < 10:
+                return (0, 0)
+            if diff > 100:
+                change = diff // 4
+                if red_rating > black_rating:
+                    return (-change, change)
+                else:
+                    return (change, -change)
+            return (0, 0)
+
+        # Determine winner/loser ratings
+        if winner == 'red':
+            winner_rating, loser_rating = red_rating, black_rating
+        else:
+            winner_rating, loser_rating = black_rating, red_rating
+
+        winner_is_higher = winner_rating >= loser_rating
+
+        # Short game: no score (but escape penalty still applies later)
+        if total_moves < 10:
+            winner_change = 0
+        elif winner_is_higher:
+            # High-rated winner
+            if diff > 200:
+                winner_change = 0
+            elif diff >= 100:
+                winner_change = 2
+            elif diff >= 10:
+                winner_change = 5
+            else:
+                winner_change = 10
+        else:
+            # Low-rated winner
+            if diff > 100:
+                winner_change = diff // 2
+            elif diff >= 10:
+                winner_change = 10 + diff // 10
+            else:
+                winner_change = 10
+
+        loser_change = -winner_change
+
+        # Escape penalty (not limited by floor)
+        if is_escape:
+            loser_change -= 50
+
+        if winner == 'red':
+            return (winner_change, loser_change)
+        else:
+            return (loser_change, winner_change)
+
+    @staticmethod
+    def apply_rating_floor(rating_before: int, change: int, is_escape: bool = False) -> int:
+        """Apply rating with floor protection.
+
+        Normal changes cannot go below 1000.
+        Escape extra penalty can push below 1000.
+        """
+        if is_escape and change < 0:
+            # Separate normal loss from escape penalty
+            # The -50 escape part ignores the floor
+            normal_change = change + 50  # Remove escape penalty
+            normal_after = max(1000, rating_before + normal_change)
+            return normal_after - 50  # Re-apply escape penalty without floor
+        else:
+            return max(1000, rating_before + change)
