@@ -501,7 +501,8 @@ export const useAuthStore = defineStore('auth', () => {
   function getWSUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = `${protocol}//${window.location.host}`
-    return `${host}/ws`
+    const basePath = import.meta.env.BASE_URL.replace(/\/$/, '') // 去掉末尾斜杠
+    return `${host}${basePath}/ws`
   }
 
   return {

@@ -18,7 +18,7 @@ interface SoundConfig {
   }
 }
 
-const SOUND_BASE = '/sounds'
+const SOUND_BASE = import.meta.env.BASE_URL + 'sounds'
 
 const SOUND_MAP: SoundConfig = {
   // === 音效 ===

@@ -19,6 +19,7 @@ export default defineConfig({
       dts: 'src/components.d.ts',
     }),
   ],
+  base: '/xiangqi/',
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -27,9 +28,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/ws': {
+      '/xiangqi/ws': {
         target: 'ws://localhost:8765',
         ws: true,
+        rewrite: (path) => path.replace(/^\/xiangqi\/ws/, '/ws'), // 🛠️ 将前端路径重写为后端的 /ws
       },
     },
   },

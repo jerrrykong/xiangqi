@@ -119,7 +119,8 @@ async function attemptConnect() {
 
 function getWSUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws`
+  const basePath = import.meta.env.BASE_URL.replace(/\/$/, '') // 去掉末尾斜杠
+  return `${protocol}//${window.location.host}${basePath}/ws`
 }
 
 function sleep(ms: number): Promise<void> {
