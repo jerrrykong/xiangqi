@@ -21,6 +21,11 @@ export const useRoomStore = defineStore('room', () => {
       rating?: number
     }
     difficulty?: number // PvE 难度
+    status?: string
+    redReady?: boolean
+    blackReady?: boolean
+    gameStarted?: boolean
+    gameWsUrl?: string
   } | null>(null)
   const isLoading = ref(false)
 
@@ -145,10 +150,102 @@ export const useRoomStore = defineStore('room', () => {
       phase,
       yourSide: room.yourSide,
       opponent: room.opponent,
+      status: phase,
+      gameStarted: phase === 'playing',
+      redReady: false,
+      blackReady: false,
     }
     // 同步 gameStore.phase
     const gameStore = useGameStore()
     gameStore.phase = phase
+  }
+
+  function updateRoomDetail(detail: {
+    room_id: string
+    status: string
+    type: string
+    red_ready?: boolean
+    black_ready?: boolean
+    game_ws_url?: string
+    your_side?: string
+    red_user?: { user_id: number; username: string; rating?: number }
+    black_user?: { user_id: number; username: string; rating?: number }
+  }) {
+    const phase = detail.status || 'waiting'
+    const myUserId = useAuthStore().user?.user_id
+    const opponent = detail.red_user && detail.red_user.user_id !== myUserId
+      ? { userId: detail.red_user.user_id, username: detail.red_user.username, rating: detail.red_user.rating }
+      : detail.black_user && detail.black_user.user_id !== myUserId
+        ? { userId: detail.black_user.user_id, username: detail.black_user.username, rating: detail.black_user.rating }
+        : undefined
+
+    currentRoom.value = {
+      roomId: detail.room_id,
+      roomType: detail.type || 'pvp',
+      phase,
+      yourSide: detail.your_side === 'black' ? 'black' : 'red',
+      opponent,
+      status: detail.status,
+      redReady: detail.red_ready,
+      blackReady: detail.black_ready,
+      gameStarted: detail.status === 'playing',
+      gameWsUrl: detail.game_ws_url,
+    }
+    const gameStore = useGameStore()
+    gameStore.phase = phase
+  }
+
+  async function restoreRoom(roomId: string) {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers.Authorization = `Bearer ${token}`
+    const response = await fetch('/rooms/me', { method: 'GET', headers })
+    if (!response.ok) {
+      throw response
+    }
+    const data = await response.json()
+    if (data.room_id !== roomId) {
+      throw new Error('room mismatch')
+    }
+    updateRoomDetail(data)
+    return data
+  }
+
+  async function fetchCurrentRoom(roomId: string) {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers.Authorization = `Bearer ${token}`
+    const response = await fetch(`/rooms/${roomId}`, { method: 'GET', headers })
+    if (!response.ok) {
+      throw response
+    }
+    const data = await response.json()
+    updateRoomDetail(data)
+    return data
+  }
+
+  async function playerReady() {
+    const result = await wsClient.request(WSMsgType.GAME_READY, {})
+    return result
+  }
+
+  async function deleteRoom() {
+    if (!currentRoom.value) {
+      throw new Error('No room to delete')
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers.Authorization = `Bearer ${token}`
+    const response = await fetch(`/rooms/${currentRoom.value.roomId}`, { method: 'DELETE', headers })
+    if (!response.ok) {
+      throw response
+    }
+    currentRoom.value = null
+    const authStore = useAuthStore()
+    if (authStore.authState === 'in_room') {
+      authStore.setAuthState('authenticated')
+    }
+    return response.json()
   }
 
   // ===== 推送消息处理 =====
@@ -165,6 +262,7 @@ export const useRoomStore = defineStore('room', () => {
     // 对手加入后进入 ready 阶段
     if (data.phase === 'ready') {
       currentRoom.value.phase = 'ready'
+      currentRoom.value.status = 'ready'
       // 同步更新 gameStore.phase，因为 Game.vue 使用 gameStore.phase 判断阶段
       const gameStore = useGameStore()
       gameStore.phase = 'ready'
@@ -177,6 +275,7 @@ export const useRoomStore = defineStore('room', () => {
     currentRoom.value.opponent = undefined
     if (_data?.phase === 'waiting') {
       currentRoom.value.phase = 'waiting'
+      currentRoom.value.status = 'waiting'
     }
   }
 
@@ -185,6 +284,8 @@ export const useRoomStore = defineStore('room', () => {
     if (!currentRoom.value) return
     console.log('[Room] Game started, room=', currentRoom.value.roomId)
     currentRoom.value.phase = 'playing'
+    currentRoom.value.status = 'playing'
+    currentRoom.value.gameStarted = true
     const authStore = useAuthStore()
     authStore.setAuthState('in_room')
 
@@ -248,6 +349,10 @@ export const useRoomStore = defineStore('room', () => {
     createRoom,
     joinRoom,
     leaveRoom,
+    restoreRoom,
+    fetchCurrentRoom,
+    playerReady,
+    deleteRoom,
     setCurrentRoom,
     clearRoom,
     // 推送处理

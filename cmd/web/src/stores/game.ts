@@ -914,6 +914,8 @@ export const useGameStore = defineStore('game', () => {
     if (roomStore.currentRoom) {
       roomStore.currentRoom.phase = data.phase
       roomStore.currentRoom.yourSide = data.your_side === 'red' ? 'red' : 'black'
+      roomStore.currentRoom.status = data.phase
+      roomStore.currentRoom.gameStarted = data.phase === 'playing'
       const myUserId = useAuthStore().user?.user_id
       if (data.red_player && data.red_player.user_id !== myUserId) {
         roomStore.currentRoom.opponent = {
@@ -928,6 +930,8 @@ export const useGameStore = defineStore('game', () => {
           rating: data.black_player.rating,
         }
       }
+      roomStore.currentRoom.redReady = !!(data.red_player && data.ready_players?.includes(data.red_player.user_id))
+      roomStore.currentRoom.blackReady = !!(data.black_player && data.ready_players?.includes(data.black_player.user_id))
     } else if (data.room_id) {
       const myUserId = useAuthStore().user?.user_id
       let opponent: { userId: number; username: string; rating?: number } | undefined

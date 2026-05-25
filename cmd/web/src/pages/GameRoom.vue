@@ -60,7 +60,7 @@ onUnmounted(() => {
 async function pollRoomStatus() {
   // 获取最新房间状态
   try {
-    await roomStore.fetchCurrentRoom()
+    await roomStore.fetchCurrentRoom(roomId.value)
   } catch (e) {
     // 忽略错误，静默重试
   }

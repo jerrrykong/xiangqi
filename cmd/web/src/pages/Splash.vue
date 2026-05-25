@@ -15,7 +15,7 @@ const retryCount = ref(0)
 const MAX_RETRIES = 3
 const statusMessage = ref('')
 
-let abortController: AbortController | null = null
+let abortController: any = null
 
 const hasToken = computed(() => !!(localStorage.getItem('token') || localStorage.getItem('session_token')))
 

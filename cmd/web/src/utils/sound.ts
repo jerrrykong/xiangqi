@@ -63,8 +63,10 @@ const SOUND_MAP: SoundConfig = {
 
 export type SoundKey = keyof typeof SOUND_MAP
 
+type SoundCacheKey = SoundKey
+
 export class SoundManager {
-  private audioCache: Map<string, HTMLAudioElement> = new Map()
+  private audioCache: Map<SoundCacheKey, HTMLAudioElement> = new Map()
   private enabled: boolean = true
   private sfxVolume: number = 0.7
   private voiceVolume: number = 0.8
@@ -75,14 +77,14 @@ export class SoundManager {
   async init(): Promise<void> {
     if (this.initialized) return
     const promises = Object.entries(SOUND_MAP).map(([key, cfg]) =>
-      this.preload(key, cfg.file)
+      this.preload(key as SoundKey, cfg.file)
     )
     await Promise.allSettled(promises)
     this.initialized = true
     console.log('[SoundManager] All sounds preloaded')
   }
 
-  private preload(key: string, file: string): Promise<void> {
+  private preload(key: SoundKey, file: string): Promise<void> {
     return new Promise((resolve) => {
       const audio = new Audio(`${SOUND_BASE}/${file}`)
       audio.preload = 'auto'
@@ -92,7 +94,7 @@ export class SoundManager {
         resolve()
       }, { once: true })
       audio.load()
-      this.audioCache.set(key, audio)
+      this.audioCache.set(key as SoundCacheKey, audio)
     })
   }
 
