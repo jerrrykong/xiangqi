@@ -597,6 +597,17 @@ class RoomManager:
         )
 
         # Broadcast game_over with rating changes
+        fen = board_to_fen(room.game_state.board) if room.game_state else ""
+        last_move = None
+        if room.game_state and room.game_state.history:
+            last_record = room.game_state.history[-1]
+            last_move = {
+                "from_pos": [last_record.move.from_row, last_record.move.from_col],
+                "to_pos": [last_record.move.to_row, last_record.move.to_col],
+            }
+            if last_record.captured >= 0:
+                last_move["captured"] = {"piece": last_record.captured}
+
         logger.info(f"Game over broadcast: room={room.room_id}, winner={winner}, reason={reason}, "
                      f"moves={room.game_state.move_count if room.game_state else 0}, "
                      f"red_change={red_rating_change}, black_change={black_rating_change}")
@@ -609,6 +620,8 @@ class RoomManager:
                 "total_moves": room.game_state.move_count if room.game_state else 0,
                 "red_rating_change": red_rating_change,
                 "black_rating_change": black_rating_change,
+                "fen": fen,
+                "last_move": last_move,
             },
         })
 

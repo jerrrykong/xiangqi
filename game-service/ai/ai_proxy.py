@@ -62,6 +62,7 @@ class AIProxy:
                 board=board,
                 turn=current_turn,
                 depth=depth,
+                max_time_ms=time_limit,
             )
             # best_move returns SearchResult, extract the Move
             move = result.move if result else None

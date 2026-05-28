@@ -207,6 +207,20 @@ class Board:
         if self._is_valid_pos(col, row):
             self._board[row][col] = piece
 
+    def make_move(self, move: "Move") -> int:
+        """执行着法并返回被吃掉的棋子编码"""
+        piece = self.get(move.from_col, move.from_row)
+        captured = self.get(move.to_col, move.to_row)
+        self.set(move.to_col, move.to_row, piece)
+        self.set(move.from_col, move.from_row, PIECE_EMPTY)
+        return captured
+
+    def unmake_move(self, move: "Move", captured: int) -> None:
+        """撤销着法，恢复被吃掉的棋子"""
+        piece = self.get(move.to_col, move.to_row)
+        self.set(move.from_col, move.from_row, piece)
+        self.set(move.to_col, move.to_row, captured)
+
     def get_piece(self, col: int, row: int) -> Optional[Piece]:
         """获取指定位置的棋子对象
         

@@ -289,6 +289,12 @@ export interface GameOverData {
   total_moves: number
   red_rating_change: number
   black_rating_change: number
+  fen: string                                      // 最终棋盘 FEN（权威状态）
+  last_move?: {                                     // 导致游戏结束的最后一步走棋
+    from_pos: number[]
+    to_pos: number[]
+    captured?: { piece: number }
+  }
 }
 
 export interface StateSyncData {

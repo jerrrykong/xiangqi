@@ -800,6 +800,22 @@ export const useGameStore = defineStore('game', () => {
   // 处理游戏结束
   function handleGameOver(data: GameOverData) {
     console.log('[Game] Game over, winner=', data.winner, 'reason=', data.reason)
+
+    // 如果最后一步走棋还没被动画展示 （move_result/opponent_move 丢失了），
+    // 用服务器发来的 last_move 补播动画；若已有动画在播放则跳过
+    if (data.last_move && !animatingMove.value) {
+      console.log('[Game] Animating last_move from game_over:', data.last_move)
+      const move: Move = {
+        from_row: data.last_move.from_pos[0],
+        from_col: data.last_move.from_pos[1],
+        to_row: data.last_move.to_pos[0],
+        to_col: data.last_move.to_pos[1],
+      }
+      // 清除因网络原因残留的 pendingMove，服务器消息是权威的
+      pendingMove = null
+      applyMoveWithAnimation(move)
+    }
+
     isGameOver.value = true
     gameResult.value = data.winner
     gameReason.value = data.reason
@@ -842,12 +858,42 @@ export const useGameStore = defineStore('game', () => {
       }
     }, voiceDelay)
 
-    // 延迟显示结果弹窗，等待走棋动画完成
-    const animDuration = animatingMove.value ? animatingMove.value.duration + 50 : 0
-    const dialogDelay = Math.max(animDuration, 600) // 至少等600ms
-    setTimeout(() => {
-      showResultDialog.value = true
-    }, dialogDelay)
+    // 等待所有走棋动画完成后再显示结果弹窗
+    // handleGameOver 可能在最后一手走棋消息之前到达，需要动态等待动画开始并完成
+    const MIN_DIALOG_DELAY_MS = 600
+    let stableChecks = 0
+
+    function waitForAnimationAndShowResult() {
+      if (animatingMove.value) {
+        // 当前有动画正在播放，等待动画完成后重新检查
+        stableChecks = 0
+        setTimeout(waitForAnimationAndShowResult, animatingMove.value.duration + 80)
+        return
+      }
+
+      stableChecks++
+      if (stableChecks < 4) {
+        // 动画已结束，但可能还有新的走棋消息要送达（因网络时序导致走棋延迟到达）
+        // 额外检查几次确保没有新动画
+        setTimeout(waitForAnimationAndShowResult, 180)
+        return
+      }
+
+      // 确认所有动画完成且稳定，先用服务器的权威 FEN 确保棋盘状态正确，再显示结果弹窗
+      const remaining = Math.max(MIN_DIALOG_DELAY_MS - stableChecks * 180 + 50, 50)
+      setTimeout(() => {
+        // 以服务器 FEN 为权威数据源，保证棋盘是最终正确状态
+        if (data.fen) {
+          const parsed = parseFEN(data.fen)
+          if (parsed.length === 10 && parsed.every((r: number[]) => r.length === 9)) {
+            board.value = parsed
+          }
+        }
+        showResultDialog.value = true
+      }, remaining)
+    }
+
+    setTimeout(waitForAnimationAndShowResult, 50)
   }
 
   // 处理求和请求

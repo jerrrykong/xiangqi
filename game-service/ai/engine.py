@@ -232,12 +232,48 @@ class Evaluator:
     ) -> float:
         """获取棋子位置价值"""
         if ptype == PieceType.PAWN:
-            return MaterialTable.get_pawn_positional(col, row, color)
+            return (MaterialTable.get_pawn_positional(col, row, color) +
+                    self._get_pawn_structure_bonus(col, row, color))
         elif ptype in (PieceType.ROOK, PieceType.CANNON):
-            return MaterialTable.get_rook_positional(col, row, color) * 0.5
+            return (MaterialTable.get_rook_positional(col, row, color) * 0.5 +
+                    self._get_rook_activity_bonus(col, row, color))
         elif ptype == PieceType.KNIGHT:
-            return MaterialTable.get_knight_positional(col, row, color)
+            return (MaterialTable.get_knight_positional(col, row, color) +
+                    self._get_knight_activity_bonus(col, row, color))
+        elif ptype == PieceType.KING:
+            return self._get_king_position_bonus(col, row, color)
         return 0.0
+
+    def _get_pawn_structure_bonus(self, col: int, row: int, color: Color) -> float:
+        bonus = 0.0
+        if color == Color.RED and row <= 4:
+            bonus += 20
+        elif color == Color.BLACK and row >= 5:
+            bonus += 20
+        if 3 <= col <= 5:
+            bonus += 10
+        return bonus
+
+    def _get_rook_activity_bonus(self, col: int, row: int, color: Color) -> float:
+        bonus = 0.0
+        if 3 <= col <= 5:
+            bonus += 10
+        if (color == Color.RED and row <= 4) or (color == Color.BLACK and row >= 5):
+            bonus += 5
+        return bonus
+
+    def _get_knight_activity_bonus(self, col: int, row: int, color: Color) -> float:
+        if 2 <= col <= 6 and 2 <= row <= 7:
+            return 10.0
+        return 0.0
+
+    def _get_king_position_bonus(self, col: int, row: int, color: Color) -> float:
+        bonus = 0.0
+        if col == 4:
+            bonus += 5
+        if (color == Color.RED and row == 9) or (color == Color.BLACK and row == 0):
+            bonus += 5
+        return bonus
 
 
 # ==================== AI 搜索引擎 ====================
@@ -251,6 +287,14 @@ class SearchResult:
     time_ms: float
     depth: int
     is_checkmate: bool = False
+
+
+@dataclass
+class TTEntry:
+    score: float
+    depth: int
+    flag: str  # 'exact', 'lower', 'upper'
+    best_move: Optional[Move] = None
 
 
 class ChessAI:
@@ -295,13 +339,17 @@ class ChessAI:
         self.search_time_ms = 0
         
         # 置换表 (可选, 简单实现)
-        self._ttable: Dict[int, Tuple[float, int, Move]] = {}  # hash -> (score, depth, best_move)
+        self._ttable: dict[tuple[int, Color, int], TTEntry] = {}
+        self._time_start = 0.0
+        self._time_limit_ms = max_time_ms
+        self._time_up = False
+        self._history_heuristic: Dict[Move, int] = {}
         
         # Killer 着法 (每层最多2个)
         self._killer_moves: List[List[Move]] = [[] for _ in range(32)]
     
     def best_move(
-        self, board: Board, turn: Color, depth: Optional[int] = None
+        self, board: Board, turn: Color, depth: Optional[int] = None, max_time_ms: Optional[float] = None
     ) -> SearchResult:
         """计算最佳着法
         
@@ -317,15 +365,25 @@ class ChessAI:
         
         search_depth = depth if depth is not None else self.depth
         
+        if max_time_ms is not None:
+            self._time_limit_ms = max_time_ms
+        else:
+            self._time_limit_ms = self.max_time_ms
+
         _log("info", "ai_search_start",
              turn=turn.value,
              search_depth=search_depth,
-             max_time_ms=self.max_time_ms)
+             max_time_ms=self._time_limit_ms)
         
         # 重置统计
         self.nodes_searched = 0
         self.max_depth_reached = 0
         self._killer_moves = [[] for _ in range(32)]
+        self._ttable = {}
+        self._history_heuristic = {}
+        self._pv_move = None
+        self._time_start = start_time
+        self._time_up = False
         
         move_generator = MoveGenerator(board)
         win_checker = WinChecker(board)
@@ -366,10 +424,9 @@ class ChessAI:
                          depth=d,
                          best_score=result.score,
                          nodes=self.nodes_searched)
-                
                 # 检查是否超时
                 elapsed = (time.time() - start_time) * 1000
-                if elapsed > self.max_time_ms:
+                if elapsed > self._time_limit_ms:
                     _log("debug", "ai_timeout_at_depth",
                          depth=d,
                          elapsed_ms=int(elapsed))
@@ -426,66 +483,55 @@ class ChessAI:
         opponent = Color.BLACK if turn == Color.RED else Color.RED
         
         # 排序着法
-        sorted_moves = self._sort_moves(legal_moves, board, turn)
+        sorted_moves = self._sort_moves(legal_moves, board, turn, depth)
         
         best_move = sorted_moves[0].to_move()
         best_score = -self.INFINITY
         best_is_checkmate = False
         
         for lm in sorted_moves:
+            if self._is_time_up():
+                break
             move = lm.to_move()
-            
-            # 检查是否超时
-            elapsed = (time.time() - start_time) * 1000
-            if elapsed > self.max_time_ms:
-                _log("debug", "ai_timeout_in_search",
-                     depth=depth,
-                     elapsed_ms=int(elapsed))
-                return None
-            
-            # 模拟着法
-            new_board = board.clone()
-            piece = new_board.get(move.from_col, move.from_row)
-            captured = new_board.get(move.to_col, move.to_row)
-            new_board.set(move.to_col, move.to_row, piece)
-            new_board.set(move.from_col, move.from_row, PIECE_EMPTY)
-            
-            # 检查送将（己方帅是否暴露）- 非法着法跳过
-            new_win_checker = WinChecker(new_board)
-            if new_win_checker.is_king_exposed(turn):
-                continue
-            
-            # 检查是否将死对手
-            game_over = new_win_checker.check_game_over(opponent)
-            
-            if game_over.is_over:
-                # 吃子获胜
-                self.nodes_searched += 1
-                _log("debug", "ai_checkmate_found",
-                     depth=depth,
-                     move=f"{chr(ord('a') + move.from_col)}{move.from_row + 1}"
-                          f"{chr(ord('a') + move.to_col)}{move.to_row + 1}",
-                     captured=captured)
-                return SearchResult(
-                    move=move,
-                    score=self.MATE_SCORE,
-                    nodes_searched=self.nodes_searched,
-                    time_ms=0,
-                    depth=depth,
-                    is_checkmate=True,
+            captured = board.make_move(move)
+            try:
+                # 检查送将（己方帅是否暴露）- 非法着法跳过
+                new_win_checker = WinChecker(board)
+                if new_win_checker.is_king_exposed(turn):
+                    continue
+
+                # 检查是否将死对手
+                game_over = new_win_checker.check_game_over(opponent)
+                if game_over.is_over:
+                    # 吃子获胜
+                    self.nodes_searched += 1
+                    _log("debug", "ai_checkmate_found",
+                         depth=depth,
+                         move=f"{chr(ord('a') + move.from_col)}{move.from_row + 1}"
+                              f"{chr(ord('a') + move.to_col)}{move.to_row + 1}",
+                         captured=captured)
+                    return SearchResult(
+                        move=move,
+                        score=self.MATE_SCORE,
+                        nodes_searched=self.nodes_searched,
+                        time_ms=0,
+                        depth=depth,
+                        is_checkmate=True,
+                    )
+
+                # Alpha-Beta 搜索
+                score = -self._negamax(
+                    board,
+                    opponent,
+                    depth - 1,
+                    -self.INFINITY,
+                    self.INFINITY,
+                    start_time,
                 )
+            finally:
+                board.unmake_move(move, captured)
             
-            # Alpha-Beta 搜索
-            score = -self._negamax(
-                new_board,
-                opponent,
-                depth - 1,
-                -self.INFINITY,
-                self.INFINITY,
-                start_time,
-            )
-            
-            self.nodes_searched += 1
+                self.nodes_searched += 1
             
             if score > best_score:
                 best_score = score
@@ -517,11 +563,26 @@ class ChessAI:
         """
         # 检查深度或超时
         if depth <= 0:
-            return self.evaluator.evaluate(board, turn)
+            return self._quiescence(board, turn, alpha, beta)
+
+        if self._is_time_up():
+            return alpha
         
-        elapsed = (time.time() - start_time) * 1000
-        if elapsed > self.max_time_ms:
-            return 0  # 超时, 返回当前评估
+        board_hash = hash(board)
+        tt_key = (board_hash, turn, depth)
+        tt_entry = self._ttable.get(tt_key)
+        if tt_entry is not None:
+            if tt_entry.depth >= depth:
+                if tt_entry.best_move is not None:
+                    self._pv_move = tt_entry.best_move
+                if tt_entry.flag == "exact":
+                    return tt_entry.score
+                elif tt_entry.flag == "lower":
+                    alpha = max(alpha, tt_entry.score)
+                elif tt_entry.flag == "upper":
+                    beta = min(beta, tt_entry.score)
+                if alpha >= beta:
+                    return tt_entry.score
         
         move_generator = MoveGenerator(board)
         win_checker = WinChecker(board)
@@ -546,63 +607,145 @@ class ChessAI:
             pass
         
         # 排序着法
-        sorted_moves = self._sort_moves(legal_moves, board, turn)
+        sorted_moves = self._sort_moves(legal_moves, board, turn, depth)
         
         # Alpha-Beta 剪枝
         best_score = -self.INFINITY
+        best_move = sorted_moves[0].to_move()
         
+        alpha_orig = alpha
         for lm in sorted_moves:
+            if self._is_time_up():
+                break
             move = lm.to_move()
-            
-            # 模拟着法
-            new_board = board.clone()
-            piece = new_board.get(move.from_col, move.from_row)
-            captured = new_board.get(move.to_col, move.to_row)
-            new_board.set(move.to_col, move.to_row, piece)
-            new_board.set(move.from_col, move.from_row, PIECE_EMPTY)
-            
-            # 检查送将（己方帅是否暴露）- 非法着法跳过
-            new_win_checker = WinChecker(new_board)
-            if new_win_checker.is_king_exposed(turn):
-                continue
-            
-            # 检查将死
-            game_over = new_win_checker.check_game_over(opponent)
-            
-            if game_over.is_over:
-                if game_over.winner == turn:
-                    return self.MATE_SCORE - (self.depth - depth)
-                else:
-                    # 对手将死
-                    pass
-            
-            score = -self._negamax(
-                new_board,
-                opponent,
-                depth - 1,
-                -beta,
-                -alpha,
-                start_time,
-            )
-            
+            captured = board.make_move(move)
+            try:
+                # 检查送将（己方帅是否暴露）- 非法着法跳过
+                new_win_checker = WinChecker(board)
+                if new_win_checker.is_king_exposed(turn):
+                    continue
+
+                # 检查将死
+                game_over = new_win_checker.check_game_over(opponent)
+                if game_over.is_over:
+                    if game_over.winner == turn:
+                        return self.MATE_SCORE - (self.depth - depth)
+                    else:
+                        pass
+
+                score = -self._negamax(
+                    board,
+                    opponent,
+                    depth - 1,
+                    -beta,
+                    -alpha,
+                    start_time,
+                )
+            finally:
+                board.unmake_move(move, captured)
             self.nodes_searched += 1
             
             if score > best_score:
                 best_score = score
+                best_move = move
             
             if best_score > alpha:
                 alpha = best_score
             
             if alpha >= beta:
                 # Beta 剪枝
-                # 记录 Killer 着法
                 self._add_killer_move(depth, move)
+                self._add_history_heuristic(depth, move)
                 break
-        
+
+        self._store_transposition(tt_key, best_score, depth, alpha_orig, beta, best_move)
         return best_score
+
+    def _quiescence(
+        self,
+        board: Board,
+        turn: Color,
+        alpha: float,
+        beta: float,
+    ) -> float:
+        """静态清算搜索，扩展吃子走法直到局面安静"""
+        if self._is_time_up():
+            return self.evaluator.evaluate(board, turn)
+
+        stand_pat = self.evaluator.evaluate(board, turn)
+        if stand_pat >= beta:
+            return stand_pat
+        if alpha < stand_pat:
+            alpha = stand_pat
+
+        capture_moves = self._generate_capture_moves(board, turn)
+        if not capture_moves:
+            return stand_pat
+
+        for lm in capture_moves:
+            if self._is_time_up():
+                break
+            move = lm.to_move()
+            captured = board.make_move(move)
+            try:
+                opponent = Color.BLACK if turn == Color.RED else Color.RED
+                score = -self._quiescence(board, opponent, -beta, -alpha)
+            finally:
+                board.unmake_move(move, captured)
+            self.nodes_searched += 1
+            if score >= beta:
+                return score
+            if score > alpha:
+                alpha = score
+
+        return alpha
+
+    def _generate_capture_moves(self, board: Board, color: Color) -> List[LegalMove]:
+        generator = MoveGenerator(board)
+        moves = generator.generate_all_moves(color)
+        capture_moves = [m for m in moves if m.captured >= 0]
+        return sorted(
+            capture_moves,
+            key=lambda m: (
+                self.evaluator._get_base_value(PieceType(m.captured % 10)) -
+                self.evaluator._get_base_value(PieceType(m.piece % 10)) * 0.5,
+                0,
+            ),
+            reverse=True,
+        )
+
+    def _store_transposition(
+        self,
+        key: tuple[int, Color, int],
+        score: float,
+        depth: int,
+        alpha: float,
+        beta: float,
+        best_move: Move,
+    ) -> None:
+        if self._is_time_up():
+            return
+        if score <= alpha:
+            flag = "upper"
+        elif score >= beta:
+            flag = "lower"
+        else:
+            flag = "exact"
+        self._ttable[key] = TTEntry(score=score, depth=depth, flag=flag, best_move=best_move)
+
+    def _is_time_up(self) -> bool:
+        if self._time_limit_ms <= 0:
+            return False
+        elapsed = (time.time() - self._time_start) * 1000
+        if elapsed > self._time_limit_ms:
+            self._time_up = True
+        return self._time_up
+
+    def _add_history_heuristic(self, depth: int, move: Move) -> None:
+        self._history_heuristic[move] = self._history_heuristic.get(move, 0) + depth * depth
     
     def _sort_moves(
-        self, moves: List[LegalMove], board: Board, turn: Color
+        self, moves: List[LegalMove], board: Board, turn: Color, depth: int
     ) -> List[LegalMove]:
         """着法排序 (Move Ordering)
         
@@ -625,11 +768,15 @@ class ChessAI:
                 # MVV-LVA: 吃大子优先
                 priority = int(captured_value - moving_value * 0.5 + 10000)
             else:
+                # PV 着法优先
+                if self._pv_move is not None and m.to_move() == self._pv_move:
+                    priority += 20000
                 # Killer 着法
-                for km in self._killer_moves[self.max_depth_reached]:
+                for km in self._killer_moves[depth]:
                     if km.from_col == m.from_col and km.from_row == m.from_row:
                         priority = 5000
                         break
+                priority += self._history_heuristic.get(m.to_move(), 0)
             
             return (priority, 0)
         
@@ -676,6 +823,10 @@ def get_ai_move(
     }
     
     depth = depth_map.get(difficulty, 3)
+    if max_time_ms >= 5000 and difficulty in (
+        Difficulty.HARD, Difficulty.EXPERT, Difficulty.MASTER
+    ):
+        depth += 1
     
     _log("info", "get_ai_move",
          difficulty=difficulty.value,
@@ -689,7 +840,7 @@ def get_ai_move(
         max_time_ms=max_time_ms,
     )
     
-    result = ai.best_move(board, turn)
+    result = ai.best_move(board, turn, depth=depth, max_time_ms=max_time_ms)
     
     _log("info", "get_ai_move_result",
          move=f"{chr(ord('a') + result.move.from_col)}{result.move.from_row + 1}"
