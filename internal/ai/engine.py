@@ -182,6 +182,21 @@ class Evaluator:
         """
         red_score = 0.0
         black_score = 0.0
+
+        # 基于局面剩余棋子数量调节马/炮的价值 (排除帅/将)
+        total_pieces = 0
+        for r in range(BOARD_ROWS):
+            for c in range(BOARD_COLS):
+                p = board.get(c, r)
+                if p >= 0:
+                    ptype = get_piece_type_from_piece(p)
+                    if ptype != PieceType.KING:
+                        total_pieces += 1
+
+        MAX_PIECES = 30.0
+        pieces_norm = max(0.0, min(MAX_PIECES, float(total_pieces)))
+        knight_multiplier = 1.0 + 0.5 * ((MAX_PIECES - pieces_norm) / MAX_PIECES)
+        cannon_multiplier = 1.0 + 0.5 * (pieces_norm / MAX_PIECES)
         
         for row in range(BOARD_ROWS):
             for col in range(BOARD_COLS):
@@ -194,6 +209,10 @@ class Evaluator:
                 
                 # 基础价值
                 base = self._get_base_value(ptype)
+                if ptype == PieceType.KNIGHT:
+                    base = base * knight_multiplier
+                elif ptype == PieceType.CANNON:
+                    base = base * cannon_multiplier
                 
                 # 位置价值
                 positional = self._get_positional_value(col, row, ptype, color)
@@ -231,17 +250,24 @@ class Evaluator:
         self, col: int, row: int, ptype: PieceType, color: Color
     ) -> float:
         """获取棋子位置价值"""
+        # make positional values stage-aware using self._phase
+        phase = getattr(self, '_phase', 0.0)
+        opening_factor = 1.0 - phase
+
         if ptype == PieceType.PAWN:
-            return (MaterialTable.get_pawn_positional(col, row, color) +
-                    self._get_pawn_structure_bonus(col, row, color))
+            base = MaterialTable.get_pawn_positional(col, row, color)
+            base = base * (1.0 + 0.3 * phase)
+            return base + self._get_pawn_structure_bonus(col, row, color) * (1.0 + 0.2 * phase)
         elif ptype in (PieceType.ROOK, PieceType.CANNON):
-            return (MaterialTable.get_rook_positional(col, row, color) * 0.5 +
-                    self._get_rook_activity_bonus(col, row, color))
+            base = MaterialTable.get_rook_positional(col, row, color) * 0.5
+            base = base * (1.0 + 0.3 * opening_factor)
+            return base + self._get_rook_activity_bonus(col, row, color) * (1.0 + 0.2 * opening_factor)
         elif ptype == PieceType.KNIGHT:
-            return (MaterialTable.get_knight_positional(col, row, color) +
-                    self._get_knight_activity_bonus(col, row, color))
+            base = MaterialTable.get_knight_positional(col, row, color)
+            base = base * (1.0 + 0.4 * phase)
+            return base + self._get_knight_activity_bonus(col, row, color) + self._get_original_knight_bonus(col, row, color)
         elif ptype == PieceType.KING:
-            return self._get_king_position_bonus(col, row, color)
+            return self._get_king_position_bonus(col, row, color) * (1.0 + 0.5 * phase)
         return 0.0
 
     def _get_pawn_structure_bonus(self, col: int, row: int, color: Color) -> float:
@@ -265,6 +291,13 @@ class Evaluator:
     def _get_knight_activity_bonus(self, col: int, row: int, color: Color) -> float:
         if 2 <= col <= 6 and 2 <= row <= 7:
             return 10.0
+        return 0.0
+
+    def _get_original_knight_bonus(self, col: int, row: int, color: Color) -> float:
+        if color == Color.RED and row == BOARD_ROWS - 1 and col in (1, 7):
+            return 20.0
+        if color == Color.BLACK and row == 0 and col in (1, 7):
+            return 20.0
         return 0.0
 
     def _get_king_position_bonus(self, col: int, row: int, color: Color) -> float:
@@ -745,6 +778,19 @@ class ChessAI:
 
     def _add_history_heuristic(self, depth: int, move: Move) -> None:
         self._history_heuristic[move] = self._history_heuristic.get(move, 0) + depth * depth
+
+    def _is_bad_opening_exchange(self, move: LegalMove, turn: Color) -> bool:
+        if move.captured < 0:
+            return False
+        moving_type = PieceType(move.piece % 10)
+        captured_type = PieceType(move.captured % 10)
+        if moving_type != PieceType.CANNON or captured_type != PieceType.KNIGHT:
+            return False
+        if turn == Color.RED and move.to_row == 0 and move.to_col in (1, 7):
+            return True
+        if turn == Color.BLACK and move.to_row == BOARD_ROWS - 1 and move.to_col in (1, 7):
+            return True
+        return False
     
     def _sort_moves(
         self, moves: List[LegalMove], board: Board, turn: Color, depth: int
@@ -769,6 +815,8 @@ class ChessAI:
                 )
                 # MVV-LVA: 吃大子优先
                 priority = int(captured_value - moving_value * 0.5 + 10000)
+                if self._is_bad_opening_exchange(m, turn):
+                    priority -= 6000
             else:
                 # PV 着法优先
                 if self._pv_move is not None and m.to_move() == self._pv_move:

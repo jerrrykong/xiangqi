@@ -50,6 +50,7 @@ const SOUND_MAP: SoundConfig = {
   eat_elephant: { file: 'voice_eat_elephant.wav', category: 'voice', volume: 0.9 },  // 吃象
   eat_cannon:   { file: 'voice_eat_cannon.wav',   category: 'voice', volume: 0.9 },  // 吃炮
   eat_pawn:     { file: 'voice_eat_pawn.wav',     category: 'voice', volume: 0.9 },  // 吃卒
+  eat_bing:     { file: 'voice_eat_bing.wav',     category: 'voice', volume: 0.9 },  // 吃兵
   eat_chariot:  { file: 'voice_eat_chariot.wav',  category: 'voice', volume: 0.9 },  // 吃车
   eat_horse:    { file: 'voice_eat_horse.wav',    category: 'voice', volume: 0.9 },  // 吃马
 
@@ -59,6 +60,11 @@ const SOUND_MAP: SoundConfig = {
   red_win:    { file: 'voice_red_win.wav',     category: 'voice', volume: 0.9 },  // 红方胜
   black_win:  { file: 'voice_black_win.wav',   category: 'voice', volume: 0.9 },  // 黑方胜
   draw_voice: { file: 'voice_draw.wav',        category: 'voice', volume: 0.9 },  // 和棋
+  i_win:      { file: 'voice_i_win.wav',       category: 'voice', volume: 0.9 },  // 我赢了
+  you_win:    { file: 'voice_you_win.wav',     category: 'voice', volume: 0.9 },  // 你赢了
+  let_me_think: { file: 'voice_let_me_think.wav', category: 'voice', volume: 0.9 },  // 让我想想
+  wanle:      { file: 'voice_wanle.wav',      category: 'voice', volume: 0.9 },   // 完了完了
+
 }
 
 export type SoundKey = keyof typeof SOUND_MAP
