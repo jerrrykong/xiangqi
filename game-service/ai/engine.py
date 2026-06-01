@@ -77,9 +77,9 @@ class MaterialTable:
         [  0,   0,   0,   0,   0,   0,   0,   0,   0],
         [  0,   0,   0,   0,   0,   0,   0,   0,   0],
         [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
         [100, 100, 100, 100, 100, 100, 100, 100, 100],  # 过河兵 +100
         [  0,   0,  50,  80, 100,  80,  50,   0,   0],  # 河口兵 +50~100
+        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
         [  0,   0,   0,   0,   0,   0,   0,   0,   0],
         [  0,   0,   0,   0,   0,   0,   0,   0,   0],
         [  0,   0,   0,   0,   0,   0,   0,   0,   0],
@@ -306,9 +306,9 @@ class Evaluator:
 
     def _get_original_knight_bonus(self, col: int, row: int, color: Color) -> float:
         if color == Color.RED and row == BOARD_ROWS - 1 and col in (1, 7):
-            return 20.0
+            return -20.0
         if color == Color.BLACK and row == 0 and col in (1, 7):
-            return 20.0
+            return -20.0
         return 0.0
 
     def _get_king_position_bonus(self, col: int, row: int, color: Color) -> float:
@@ -357,6 +357,8 @@ class ChessAI:
     # 评估正向极值
     MATE_SCORE = 100000
     INFINITY = float('inf')
+    # Null-move reduction steps
+    NULL_MOVE_REDUCTION = 2
     
     def __init__(
         self,
@@ -649,6 +651,40 @@ class ChessAI:
         if depth >= 4:
             # 简单重复检测
             pass
+
+        # Null-move 剪枝 (保守策略):
+        # 仅在较大深度、非将军并且非明显残局时尝试。使用 R = NULL_MOVE_REDUCTION。
+        try_null_move = False
+        if depth >= 4:
+            try_null_move = True
+        if try_null_move:
+            # 避免在将军或残局中使用 null-move
+            if not win_checker.is_king_exposed(turn):
+                # 简单判断是否为残局: 子力很少时禁用 null-move
+                non_king_pieces = 0
+                for r in range(BOARD_ROWS):
+                    for c in range(BOARD_COLS):
+                        p = board.get(c, r)
+                        if p >= 0:
+                            ptype = get_piece_type_from_piece(p)
+                            if ptype != PieceType.KING:
+                                non_king_pieces += 1
+                # 如果子力较少(<=6)视作残局, 不使用 null-move
+                if non_king_pieces > 6:
+                    R = self.NULL_MOVE_REDUCTION
+                    # 进行 reduced-depth null-move 搜索
+                    null_depth = depth - 1 - R
+                    if null_depth > 0:
+                        score = -self._negamax(
+                            board,
+                            opponent,
+                            null_depth,
+                            -beta,
+                            -beta + 1,
+                            start_time,
+                        )
+                        if score >= beta:
+                            return score
         
         # 排序着法
         sorted_moves = self._sort_moves(legal_moves, board, turn, depth)
@@ -717,6 +753,10 @@ class ChessAI:
             return self.evaluator.evaluate(board, turn)
 
         stand_pat = self.evaluator.evaluate(board, turn)
+        # Delta cutoff: 如果即便抓到最大价值的子也无法超过 alpha，则剪枝
+        MAX_CAPTURE_VALUE = 900.0
+        if stand_pat + MAX_CAPTURE_VALUE < alpha:
+            return alpha
         if stand_pat >= beta:
             return stand_pat
         if alpha < stand_pat:

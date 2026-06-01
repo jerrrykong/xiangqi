@@ -346,6 +346,8 @@ class ChessAI:
     # 评估正向极值
     MATE_SCORE = 100000
     INFINITY = float('inf')
+    # Null-move reduction steps
+    NULL_MOVE_REDUCTION = 2
     
     def __init__(
         self,
@@ -641,6 +643,32 @@ class ChessAI:
         if depth >= 4:
             # 简单重复检测
             pass
+
+        # Null-move 剪枝 (保守策略)
+        if depth >= 4:
+            if not win_checker.is_king_exposed(turn):
+                non_king_pieces = 0
+                for r in range(BOARD_ROWS):
+                    for c in range(BOARD_COLS):
+                        p = board.get(c, r)
+                        if p >= 0:
+                            ptype = get_piece_type_from_piece(p)
+                            if ptype != PieceType.KING:
+                                non_king_pieces += 1
+                if non_king_pieces > 6:
+                    R = self.NULL_MOVE_REDUCTION
+                    null_depth = depth - 1 - R
+                    if null_depth > 0:
+                        score = -self._negamax(
+                            board,
+                            Color.BLACK if turn == Color.RED else Color.RED,
+                            null_depth,
+                            -beta,
+                            -beta + 1,
+                            start_time,
+                        )
+                        if score >= beta:
+                            return score
         
         # 排序着法
         sorted_moves = self._sort_moves(legal_moves, board, turn, depth)
@@ -708,6 +736,10 @@ class ChessAI:
             return self.evaluator.evaluate(board, turn)
 
         stand_pat = self.evaluator.evaluate(board, turn)
+        # Delta cutoff: 如果即便抓到最大的子也无法超过 alpha，则剪枝
+        MAX_CAPTURE_VALUE = 900.0
+        if stand_pat + MAX_CAPTURE_VALUE < alpha:
+            return alpha
         if stand_pat >= beta:
             return stand_pat
         if alpha < stand_pat:
