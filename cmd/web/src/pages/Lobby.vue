@@ -417,6 +417,10 @@ function getResultType(result: string): 'success' | 'danger' | 'info' {
   padding: 24px;
 }
 
+.el-button + .el-button {
+  margin-left: 0 !important;   /* 取消横向间距 */
+}
+
 .left-column {
   display: flex;
   flex-direction: column;

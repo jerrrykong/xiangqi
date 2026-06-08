@@ -282,7 +282,7 @@ function toggleSound() {
 // 走棋历史文本
 function formatMoveRecord(record: MoveRecord, index: number): string {
   const isRed = record.piece < 10
-  const colorTag = isRed ? '红' : '黑'
+  const colorTag = isRed ? '[红]' : '[黑]'
   return `${record.moveNumber}. ${colorTag} ${record.notation}`
 }
 </script>
@@ -425,7 +425,7 @@ function formatMoveRecord(record: MoveRecord, index: number): string {
               v-for="(record, index) in gameStore.moveHistory"
               :key="index"
               class="move-item"
-              :class="{ latest: index === gameStore.moveHistory.length - 1 }"
+              :class="{ latest: index === gameStore.moveHistory.length - 1, red: record.piece < 10, black: record.piece >= 10}"
             >
               {{ formatMoveRecord(record, index) }}
             </div>
@@ -566,8 +566,8 @@ function formatMoveRecord(record: MoveRecord, index: number): string {
           v-for="(record, index) in gameStore.moveHistory"
           :key="index"
           class="move-item"
-          :class="{ latest: index === gameStore.moveHistory.length - 1 }"
-        >
+          :class="{ latest: index === gameStore.moveHistory.length - 1, red: record.piece < 10, black: record.piece >= 10}"
+              >
           {{ formatMoveRecord(record, index) }}
         </div>
         <div v-if="gameStore.moveHistory.length === 0" class="move-empty">暂无走棋记录</div>
@@ -964,10 +964,28 @@ function formatMoveRecord(record: MoveRecord, index: number): string {
 .move-item {
   padding: 4px 8px;
   font-size: 0.8rem;
-  color: #4b5563;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
 }
+
+.move-item.red {
+  color: #d61818;
+  text-shadow: 
+  -1px -1px 0 #FFFFAA,
+  1px -1px 0 #FFFFAA,
+  -1px  1px 0 #FFFFAA,
+  1px  1px 0 #FFFFAA;
+}
+
+.move-item.black {
+  color: #000000;
+  text-shadow: 
+  -1px -1px 0 #cccccc,  
+  1px -1px 0 #cccccc,
+  -1px  1px 0 #cccccc,
+  1px  1px 0 #cccccc;
+}
+
 
 .move-item.latest {
   background: rgba(34, 197, 94, 0.15);

@@ -507,27 +507,69 @@ export const useGameStore = defineStore('game', () => {
     validMoves.value = []
   }
 
-  // 生成走棋记谱
+  /** 红方列名：从右往左 一~九（col 8=一, col 0=九） */
+  const RED_COL_NAMES = ['一', '二', '三', '四', '五', '六', '七', '八', '九']
+  /** 黑方列名：从左往右 １~９（col 0=１, col 8=９） */
+  const BLACK_COL_NAMES = ['１', '２', '３', '４', '５', '６', '７', '８', '９']
+
+  // 生成走棋记谱（从棋子自身方的视角）
   function getMoveNotation(move: Move, piece: number): string {
-    const pieceName = PieceChars[piece as keyof typeof PieceChars] || '?'
-    const colNames = '一二三四五六七八九'
-    const fromCol = yourColor.value === Color.Red ? colNames[8 - move.from_col] : colNames[move.from_col]
-    const toCol = yourColor.value === Color.Red ? colNames[8 - move.to_col] : colNames[move.to_col]
-    let action: string
-    if (move.from_col === move.to_col) {
-      action = move.from_row < move.to_row
-        ? (yourColor.value === Color.Red ? '退' : '进')
-        : (yourColor.value === Color.Red ? '进' : '退')
-      const steps = Math.abs(move.to_row - move.from_row)
-      action += yourColor.value === Color.Red ? colNames[9 - steps] || steps : steps.toString()
-    } else if (move.from_row === move.to_row) {
-      action = `平${toCol}`
-    } else {
-      action = (yourColor.value === Color.Red
-        ? (move.to_row < move.from_row ? '进' : '退')
-        : (move.to_row > move.from_row ? '进' : '退')) + toCol
+    const pieceName = (PieceChars as Record<number, string>)[piece] || '?'
+    const pieceType = piece % 10   // 0=将/帅, 1=士, 2=象, 3=马, 4=车, 5=炮, 6=兵
+    const pieceColor = Math.floor(piece / 10)  // 0=红, 1=黑
+    const isRed = pieceColor === 0
+
+    const { from_col, to_col, from_row, to_row } = move
+
+    // 红方列坐标从右往左一~九；黑方列坐标从左往右１~９
+    const colName = (col: number) =>
+      isRed ? RED_COL_NAMES[8 - col] : BLACK_COL_NAMES[col]
+
+    // 检查走棋前同一纵线上是否存在同色同类型棋子（用于前/中/后区分）
+    // 走棋后棋子已移走，需把 from_row 补回；纵向移动时 to_row 上的就是本棋子，需排除
+    const sameOnCol: number[] = [from_row]
+    for (let r = 0; r < 10; r++) {
+      if (r === from_row) continue
+      if (from_col === to_col && r === to_row) continue  // 纵向移动：to_row 上是本棋子，避免重复计算
+      const p = board.value[r][from_col]
+      if (p >= 0 && p % 10 === pieceType && Math.floor(p / 10) === pieceColor) {
+        sameOnCol.push(r)
+      }
     }
-    return `${pieceName}${fromCol}${action}`
+
+    let prefix: string
+    if (sameOnCol.length >= 2) {
+      // 多个同色同型棋子在同一纵线 → 用 前/中/后 区分
+      // "前" 指更靠近对方半场：红方前=行号小, 黑方前=行号大
+      sameOnCol.sort((a, b) => isRed ? a - b : b - a)
+      const idx = sameOnCol.indexOf(from_row)
+      const labels = sameOnCol.length === 2 ? ['前', '后'] : ['前', '中', '后']
+      prefix = (labels[idx] || '?') + pieceName
+    } else {
+      prefix = pieceName + colName(from_col)
+    }
+
+    // 走法说明（从棋子自身方视角）
+    // 红方 进 = 向上 (row 减小)，退 = 向下 (row 增大)
+    // 黑方 进 = 向下 (row 增大)，退 = 向上 (row 减小)
+    let action: string
+
+    if (from_col === to_col) {
+      // 直线移动：进N / 退N（N 为相对步数）
+      const isForward = isRed ? (to_row < from_row) : (to_row > from_row)
+      const steps = Math.abs(to_row - from_row)
+      const stepsStr = isRed ? RED_COL_NAMES[steps - 1] : BLACK_COL_NAMES[steps - 1]
+      action = (isForward ? '进' : '退') + stepsStr
+    } else if (from_row === to_row) {
+      // 横向移动：平
+      action = '平' + colName(to_col)
+    } else {
+      // 斜线移动（马、士、象）：进/退 + 目标列
+      const isForward = isRed ? (to_row < from_row) : (to_row > from_row)
+      action = (isForward ? '进' : '退') + colName(to_col)
+    }
+
+    return prefix + action
   }
 
   // 添加走棋记录
@@ -674,6 +716,19 @@ export const useGameStore = defineStore('game', () => {
     const isHorizontal = move.from_row === move.to_row
 
     switch (pieceType) {
+      case 0: // 将/帅
+        if (pieceColor == 0) {
+          // 红
+          if (isHorizontal) {
+            return 'level_rking'
+          }
+          return isBackward ? 'back_rking' : 'front_rking'
+        } else {
+          if (isHorizontal) {
+            return 'level_bking'
+          }
+          return isBackward ? 'back_bking' : 'front_bking'
+        }
       case 1: // 士/仕
         // 规则3: 向前移动士 → voice_move_advisor
         // 规则4: 向后移动士 → voice_luo_advisor
@@ -692,16 +747,19 @@ export const useGameStore = defineStore('game', () => {
         // 规则8: 炮横向移动 → voice_ping_cannon (平炮)
         if (isHorizontal) {
           return 'level_cannon'
-        }
+        } 
         // 默认: 炮其它走法 → 当头炮语音
-        return null
+        return isBackward ? 'back_cannon' : 'front_cannon'
 
       case 4: // 车
         // 规则9: 车从初始位置移动 → voice_move_chariot (出车)
-        if (_isChariotAtInitialPos(move, pieceColor)) {
+        if (_isChariotAtInitialPos(move, pieceColor) && isHorizontal) {
           return 'chariot'
         }
-        return null
+        if (isHorizontal) {
+          return 'level_chariot'
+        }
+        return isBackward ? 'back_chariot' : 'front_chariot'
 
       case 3: // 马
         // 规则10: 移动马 → voice_move_horse
@@ -710,7 +768,7 @@ export const useGameStore = defineStore('game', () => {
       case 6: // 兵/卒
         // 规则11: 兵/卒向前移动 → voice_move_pawn
         if (!isHorizontal) {
-          return 'pawn'
+          return pieceColor == 0 ? 'bing' : 'pawn'
         }
         // 兵/卒平移 → 无专属语音
         return null

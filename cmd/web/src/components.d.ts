@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     ChessBoard: typeof import('./components/ChessBoard.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
+    ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElForm: typeof import('element-plus/es')['ElForm']
     ElFormItem: typeof import('element-plus/es')['ElFormItem']

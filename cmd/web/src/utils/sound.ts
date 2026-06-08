@@ -34,6 +34,7 @@ const SOUND_MAP: SoundConfig = {
   // === 棋步语音 ===
   chariot:    { file: 'voice_move_chariot.wav',  category: 'voice', volume: 0.9 },  // 出车
   pawn:       { file: 'voice_move_pawn.wav',     category: 'voice', volume: 0.9 },  // 拱卒
+  bing:       { file: 'voice_move_bing.wav',     category: 'voice', volume: 0.9 },  // 拱兵
   horse:      { file: 'voice_move_horse.wav',    category: 'voice', volume: 0.9 },  // 跳马
   advisor:    { file: 'voice_move_advisor.wav',  category: 'voice', volume: 0.9 },  // 上士
   elephant:   { file: 'voice_move_elephant.wav', category: 'voice', volume: 0.9 },  // 飞象
@@ -44,6 +45,17 @@ const SOUND_MAP: SoundConfig = {
   drop_advisor:  { file: 'voice_luo_advisor.wav',  category: 'voice', volume: 0.9 },  // 落士
   drop_elephant: { file: 'voice_luo_elephant.wav', category: 'voice', volume: 0.9 },  // 落象
   level_cannon:  { file: 'voice_ping_cannon.wav',  category: 'voice', volume: 0.9 },  // 平炮
+  front_cannon: { file: 'voice_jin_cannon.wav',  category: 'voice', volume: 0.9 },    // 进炮
+  back_cannon:  { file: 'voice_tui_cannon.wav',  category: 'voice', volume: 0.9 },    // 退炮
+  level_chariot: { file: 'voice_ping_chariot.wav', category: 'voice', volume: 0.9 },  // 平车
+  front_chariot: { file: 'voice_jin_chariot.wav', category: 'voice', volume: 0.9 },   // 进车 
+  back_chariot: { file: 'voice_tui_chariot.wav', category: 'voice', volume: 0.9 },    // 退车
+  level_bking: { file: 'voice_ping_bking.wav', category: 'voice', volume: 0.9 },      // 平将
+  front_bking: { file: 'voice_front_bking.wav', category: 'voice', volume: 0.9 },     // 进将
+  back_bking: { file: 'voice_back_bking.wav', category: 'voice', volume: 0.9 },       // 退将
+  level_rking: { file: 'voice_ping_rking.wav', category: 'voice', volume: 0.9 },      // 平帅
+  front_rking: { file: 'voice_front_rking.wav', category: 'voice', volume: 0.9 },     // 进帅
+  back_rking: { file: 'voice_back_rking.wav', category: 'voice', volume: 0.9 },       // 退帅
 
   // === 吃子语音 ===
   eat_advisor:  { file: 'voice_eat_advisor.wav',  category: 'voice', volume: 0.9 },  // 吃士
@@ -62,7 +74,7 @@ const SOUND_MAP: SoundConfig = {
   draw_voice: { file: 'voice_draw.wav',        category: 'voice', volume: 0.9 },  // 和棋
   i_win:      { file: 'voice_i_win.wav',       category: 'voice', volume: 0.9 },  // 我赢了
   you_win:    { file: 'voice_you_win.wav',     category: 'voice', volume: 0.9 },  // 你赢了
-  let_me_think: { file: 'voice_let_me_think.wav', category: 'voice', volume: 0.9 },  // 让我想想
+  think:      { file: 'voice_let_me_think.wav', category: 'voice', volume: 0.9 },  // 让我想想
   wanle:      { file: 'voice_wanle.wav',      category: 'voice', volume: 0.9 },   // 完了完了
 
 }
