@@ -59,7 +59,7 @@ function goBack() {
             <div class="item-label">音效</div>
             <div class="item-desc">走棋与系统提示音效</div>
           </div>
-          <label class="toggle-switch">
+          <label class="toggle">
             <input type="checkbox" v-model="soundEnabled" />
             <span class="toggle-track"></span>
           </label>
@@ -78,7 +78,7 @@ function goBack() {
             <div class="item-label">走棋确认</div>
             <div class="item-desc">走棋前需二次确认</div>
           </div>
-          <label class="toggle-switch">
+          <label class="toggle">
             <input type="checkbox" v-model="moveConfirm" />
             <span class="toggle-track"></span>
           </label>
@@ -213,53 +213,7 @@ function goBack() {
   flex-shrink: 0;
 }
 
-/* 开关组件 */
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 48px;
-  height: 26px;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-
-.toggle-track {
-  position: absolute;
-  inset: 0;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-wood-light);
-  border-radius: var(--radius-full);
-  transition: all 0.2s;
-}
-
-.toggle-track::before {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-  transition: all 0.2s;
-}
-
-.toggle-switch input:checked + .toggle-track {
-  background: var(--color-gold);
-  border-color: var(--color-gold-dark);
-}
-
-.toggle-switch input:checked + .toggle-track::before {
-  transform: translateX(22px);
-  background: white;
-}
+/* 开关组件 — 使用全局 .toggle / .toggle-track（见 forms.css） */
 
 .settings-about {
   margin-top: 24px;
