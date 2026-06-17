@@ -1,0 +1,23 @@
+/* ============================================
+   兼容性变量映射
+   旧变量名 → 新设计系统变量名
+   过渡期使用，最终在阶段四删除
+   ============================================ */
+
+:root {
+  /* 旧 --color-wood-N 系列 → 新系统 */
+  --color-wood-50:   var(--color-bg-tertiary);     /* #FEF3C7 */
+  --color-wood-100:  var(--color-bg-primary);      /* #FFFBEB */
+  --color-wood-200:  var(--color-bg-secondary);    /* #FFF7D6 */
+  --color-wood-300:  var(--color-wood-bg);          /* #FDE68A */
+  --color-wood-400:  var(--color-gold-light);       /* #F59E0B */
+  --color-wood-500:  var(--color-wood-light);        /* #D97706 */
+  --color-wood-600:  var(--color-wood);              /* #92400E */
+  --color-wood-700:  var(--color-wood-dark);          /* #78350F */
+  --color-wood-800:  var(--color-wood-dark);          /* #78350F 近似 */
+  --color-wood-900:  #5C3A1E;                         /* 深于 wood-dark */
+
+  /* 棋子颜色 — 着法记录等文字场景 */
+  --color-piece-red:    #C53030;    /* 朱红（着法文字） */
+  --color-piece-black:  #2D3748;   /* 深灰蓝（着法文字） */
+}

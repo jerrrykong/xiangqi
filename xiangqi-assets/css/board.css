@@ -1,0 +1,30 @@
+/* ============================================
+   楚汉争锋 — 棋盘样式
+   与 Demo 完全一致（board-frame 模式）
+   ============================================ */
+
+/* 棋盘区域：自适应缩放，居中、四周留白 */
+.game-board-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 棋盘 layout 由 JS 动态控制宽高；原生 540×600，棋子 48×48 */
+.board-frame {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.board-frame img.board-bg {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}

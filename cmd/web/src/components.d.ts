@@ -11,7 +11,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    ChessBoard: typeof import('./components/ChessBoard.vue')['default']
+    AppConfirm: typeof import('./components/common/AppConfirm.vue')['default']
+    AppToast: typeof import('./components/common/AppToast.vue')['default']
+    ChessBoard: typeof import('./components/chess/ChessBoard.vue')['default']
+    ChessPiece: typeof import('./components/chess/ChessPiece.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElDialog: typeof import('element-plus/es')['ElDialog']
@@ -21,6 +24,11 @@ declare module 'vue' {
     ElPagination: typeof import('element-plus/es')['ElPagination']
     ElSlider: typeof import('element-plus/es')['ElSlider']
     ElTag: typeof import('element-plus/es')['ElTag']
+    GameControls: typeof import('./components/game/GameControls.vue')['default']
+    GameTimer: typeof import('./components/game/GameTimer.vue')['default']
+    MoveList: typeof import('./components/chess/MoveList.vue')['default']
+    PlaybackControls: typeof import('./components/game/PlaybackControls.vue')['default']
+    PlayerInfo: typeof import('./components/game/PlayerInfo.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }

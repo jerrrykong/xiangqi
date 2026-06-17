@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>楚汉争锋 — 资源预览索引</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans TC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #FFFBEB;
+      color: #451A03;
+      padding: 40px 24px;
+    }
+    h1 { font-family: 'Noto Serif TC', 'KaiTi', serif; text-align: center; font-size: 2rem; color: #5C3A1E; margin-bottom: 8px; }
+    .subtitle { text-align: center; color: #A16207; margin-bottom: 40px; font-size: 0.9rem; }
+    h2 { font-family: 'Noto Serif TC', serif; font-size: 1.3rem; color: #78350F; margin: 36px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #D97706; }
+    .grid { display: flex; flex-wrap: wrap; gap: 20px; }
+    .card {
+      background: white;
+      border: 1px solid #FDE68A;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(120,53,15,0.1);
+      display: flex; flex-direction: column; align-items: center;
+      min-width: 100px;
+      transition: transform 0.2s;
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(120,53,15,0.15); }
+    .card img { width: 56px; height: 56px; margin-bottom: 8px; }
+    .card .label { font-size: 0.75rem; color: #78350F; text-align: center; }
+    .card .filename { font-size: 0.65rem; color: #D4A574; text-align: center; margin-top: 2px; }
+    .board-preview { display: flex; justify-content: center; }
+    .board-preview img { max-width: 400px; border-radius: 8px; box-shadow: 0 4px 16px rgba(120,53,15,0.2); }
+    .stats { text-align: center; color: #A16207; margin-top: 24px; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div style="text-align:center; margin-bottom:16px;">
+    <img src="assets/svg/ui/text-logo.svg" alt="楚漢爭鋒" style="height:48px; display:block; margin:0 auto 4px;">
+    <p class="subtitle" style="margin-bottom:0;">中国象棋 Web 应用 · 设计资源预览索引</p>
+  </div>
+
+  <!-- 文字 Logo -->
+  <h2>文字 Logo</h2>
+  <div class="grid">
+    <div class="card" style="min-width:260px;">
+      <img src="assets/svg/ui/text-logo.svg" alt="楚漢爭鋒" style="width:280px; height:auto;">
+      <span class="label">横向文字 Logo（繁体行楷·凹刻效果）</span>
+      <span class="filename">text-logo.svg (360×96)</span>
+    </div>
+    <div class="card">
+      <img src="assets/svg/ui/logo.svg" alt="App图标" style="width:80px; height:80px;">
+      <span class="label">方形 App 图标</span>
+      <span class="filename">logo.svg (120×120)</span>
+    </div>
+  </div>
+
+  <!-- 棋盘 -->
+  <h2>棋盘</h2>
+  <div class="board-preview">
+    <img src="assets/svg/board.svg" alt="棋盘">
+  </div>
+
+  <!-- 红方棋子 -->
+  <h2>红方棋子 (7枚)</h2>
+  <div class="grid">
+    <div class="card"><img src="assets/svg/pieces/red-shuai.svg" alt="帥"><span class="label">帥</span><span class="filename">red-shuai.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/red-shi.svg" alt="仕"><span class="label">仕</span><span class="filename">red-shi.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/red-xiang.svg" alt="相"><span class="label">相</span><span class="filename">red-xiang.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/red-ma.svg" alt="馬"><span class="label">馬</span><span class="filename">red-ma.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/red-ju.svg" alt="車"><span class="label">車</span><span class="filename">red-ju.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/red-pao.svg" alt="炮"><span class="label">炮</span><span class="filename">red-pao.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/red-bing.svg" alt="兵"><span class="label">兵</span><span class="filename">red-bing.svg</span></div>
+  </div>
+
+  <!-- 黑方棋子 -->
+  <h2>黑方棋子 (7枚)</h2>
+  <div class="grid">
+    <div class="card"><img src="assets/svg/pieces/black-jiang.svg" alt="將"><span class="label">將</span><span class="filename">black-jiang.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/black-shi.svg" alt="士"><span class="label">士</span><span class="filename">black-shi.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/black-xiang.svg" alt="象"><span class="label">象</span><span class="filename">black-xiang.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/black-ma.svg" alt="馬"><span class="label">馬</span><span class="filename">black-ma.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/black-ju.svg" alt="車"><span class="label">車</span><span class="filename">black-ju.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/black-pao.svg" alt="砲"><span class="label">砲</span><span class="filename">black-pao.svg</span></div>
+    <div class="card"><img src="assets/svg/pieces/black-zu.svg" alt="卒"><span class="label">卒</span><span class="filename">black-zu.svg</span></div>
+  </div>
+
+  <!-- UI 图标 -->
+  <h2>UI 图标 (23个)</h2>
+  <div class="grid">
+    <div class="card"><img src="assets/svg/ui/logo.svg" alt="Logo"><span class="label">Logo</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-settings.svg" alt="设置"><span class="label">设置</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-back.svg" alt="返回"><span class="label">返回</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-close.svg" alt="关闭"><span class="label">关闭</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-play.svg" alt="播放"><span class="label">播放</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-pause.svg" alt="暂停"><span class="label">暂停</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-prev.svg" alt="上一步"><span class="label">上一步</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-next.svg" alt="下一步"><span class="label">下一步</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-undo.svg" alt="悔棋"><span class="label">悔棋</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-refresh.svg" alt="刷新"><span class="label">刷新</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-user.svg" alt="用户"><span class="label">用户</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-trophy.svg" alt="排行"><span class="label">排行</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-clock.svg" alt="时钟"><span class="label">时钟</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-check.svg" alt="确认"><span class="label">确认</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-plus.svg" alt="添加"><span class="label">添加</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-exit.svg" alt="退出"><span class="label">退出</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-fullscreen.svg" alt="全屏"><span class="label">全屏</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-flag.svg" alt="旗帜"><span class="label">旗帜</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-sword.svg" alt="对战"><span class="label">对战</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-import.svg" alt="导入"><span class="label">导入</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-star.svg" alt="收藏"><span class="label">收藏</span></div>
+    <div class="card"><img src="assets/svg/ui/icon-ai.svg" alt="AI"><span class="label">AI</span></div>
+  </div>
+
+  <!-- 统计 -->
+  <div class="stats">
+    🎨 SVG 矢量资源: <strong>38</strong> (棋盘 ×1 + 棋子 ×14 + UI图标 ×23) | 
+    📄 CSS 样式模块: <strong>14</strong> | 
+    🧩 Vue 组件: <strong>7</strong> | 
+    📱 界面适配: <strong>5界面</strong> (PC + 移动端)
+  </div>
+</body>
+</html>

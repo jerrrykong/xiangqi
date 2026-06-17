@@ -1,0 +1,134 @@
+{
+  "project": "楚汉争锋 - Chinese Chess Web App",
+  "version": "1.0.0",
+  "framework": "Vue 3",
+  "style_system": "CSS Custom Properties",
+  "generated": "2026-06-12",
+
+  "design_tokens": {
+    "primary_bg": "#FFFBEB",
+    "gold": "#D97706",
+    "wood": "#92400E",
+    "walnut": "#5C3A1E",
+    "font_serif": "Noto Serif TC, KaiTi, STKaiti",
+    "font_sans": "Noto Sans TC, PingFang SC, Microsoft YaHei"
+  },
+
+  "css_files": {
+    "main": "css/main.css",
+    "modules": {
+      "reset":       "css/reset.css",
+      "variables":   "css/variables.css",
+      "global":      "css/global.css",
+      "buttons":     "css/buttons.css",
+      "forms":       "css/forms.css",
+      "popups":      "css/popups.css",
+      "board":       "css/board.css",
+      "pieces":      "css/pieces.css",
+      "login":       "css/login.css",
+      "lobby":       "css/lobby.css",
+      "game":        "css/game.css",
+      "review":      "css/review.css",
+      "settings":    "css/settings.css"
+    }
+  },
+
+  "svg_assets": {
+    "board": {
+      "full": "assets/svg/board.svg",
+      "description": "完整棋盘，含木纹、楚河汉界、星位、边框装饰"
+    },
+    "pieces": {
+      "red": {
+        "shuai": "assets/svg/pieces/red-shuai.svg",
+        "shi":   "assets/svg/pieces/red-shi.svg",
+        "xiang": "assets/svg/pieces/red-xiang.svg",
+        "ma":    "assets/svg/pieces/red-ma.svg",
+        "ju":    "assets/svg/pieces/red-ju.svg",
+        "pao":   "assets/svg/pieces/red-pao.svg",
+        "bing":  "assets/svg/pieces/red-bing.svg"
+      },
+      "black": {
+        "jiang": "assets/svg/pieces/black-jiang.svg",
+        "shi":   "assets/svg/pieces/black-shi.svg",
+        "xiang": "assets/svg/pieces/black-xiang.svg",
+        "ma":    "assets/svg/pieces/black-ma.svg",
+        "ju":    "assets/svg/pieces/black-ju.svg",
+        "pao":   "assets/svg/pieces/black-pao.svg",
+        "zu":    "assets/svg/pieces/black-zu.svg"
+      }
+    },
+    "ui": {
+      "logo":        "assets/svg/ui/logo.svg",
+      "settings":    "assets/svg/ui/icon-settings.svg",
+      "back":        "assets/svg/ui/icon-back.svg",
+      "close":       "assets/svg/ui/icon-close.svg",
+      "play":        "assets/svg/ui/icon-play.svg",
+      "pause":       "assets/svg/ui/icon-pause.svg",
+      "prev":        "assets/svg/ui/icon-prev.svg",
+      "next":        "assets/svg/ui/icon-next.svg",
+      "undo":        "assets/svg/ui/icon-undo.svg",
+      "refresh":     "assets/svg/ui/icon-refresh.svg",
+      "user":        "assets/svg/ui/icon-user.svg",
+      "trophy":      "assets/svg/ui/icon-trophy.svg",
+      "clock":       "assets/svg/ui/icon-clock.svg",
+      "check":       "assets/svg/ui/icon-check.svg",
+      "plus":        "assets/svg/ui/icon-plus.svg",
+      "exit":        "assets/svg/ui/icon-exit.svg",
+      "fullscreen":  "assets/svg/ui/icon-fullscreen.svg",
+      "flag":        "assets/svg/ui/icon-flag.svg",
+      "sword":       "assets/svg/ui/icon-sword.svg",
+      "import":      "assets/svg/ui/icon-import.svg",
+      "star":        "assets/svg/ui/icon-star.svg",
+      "ai":          "assets/svg/ui/icon-ai.svg",
+      "btn_bg":      "assets/svg/ui/btn-bg-normal.svg"
+    }
+  },
+
+  "vue_components": {
+    "ChessBoard":         "components/ChessBoard.vue",
+    "ChessPiece":         "components/ChessPiece.vue",
+    "PlayerInfo":         "components/PlayerInfo.vue",
+    "GameTimer":          "components/GameTimer.vue",
+    "MoveList":           "components/MoveList.vue",
+    "GameControls":       "components/GameControls.vue",
+    "PlaybackControls":   "components/PlaybackControls.vue"
+  },
+
+  "button_states": {
+    "description": "所有按钮状态通过CSS实现，无需独立SVG贴图",
+    "types": {
+      "primary":   ["normal", "hover", "active", "disabled"],
+      "secondary": ["normal", "hover", "active", "disabled"],
+      "danger":    ["normal", "hover", "active", "disabled"],
+      "text":      ["normal", "hover", "active", "disabled"],
+      "icon":      ["normal", "hover", "active", "disabled"],
+      "ornament":  ["normal", "hover", "active", "disabled"]
+    },
+    "css_class_pattern": "btn-{type} with pseudo-classes :hover, :active, :disabled"
+  },
+
+  "chess_piece_style": {
+    "type": "中国传统木质阴刻",
+    "shape": "圆形 (56×56)",
+    "effects": ["径向渐变基底", "金边环框", "内环双线", "楷体阴刻文字", "光泽高光反射", "双层投影"],
+    "red_base": "#C53030",
+    "black_base": "#2D3748"
+  },
+
+  "interfaces": {
+    "login":    { "file": "css/login.css", "max_width": 420 },
+    "lobby":    { "file": "css/lobby.css", "max_width": 1440 },
+    "game":     { "file": "css/game.css", "max_width": 1440, "mobile_adapted": true },
+    "review":   { "file": "css/review.css", "max_width": 1440, "mobile_adapted": true },
+    "settings": { "file": "css/settings.css", "max_width": 720 },
+    "popups":   { "file": "css/popups.css", "includes": ["result_dialog", "leaderboard", "history", "toast"] }
+  },
+
+  "usage": {
+    "import_css": "@import '@/styles/main.css' 或 <link href=\"css/main.css\">",
+    "import_board": "import ChessBoard from '@/components/ChessBoard.vue'",
+    "import_piece": "import ChessPiece from '@/components/ChessPiece.vue'",
+    "import_icons": "import logoSvg from '@/assets/svg/ui/logo.svg'"
+  }
+}

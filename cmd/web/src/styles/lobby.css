@@ -1,0 +1,187 @@
+/* ============================================
+   楚汉争锋 — 大厅界面样式
+   与 Demo 完全一致
+   ============================================ */
+
+.lobby-page {
+  max-width: var(--max-width-content);
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+/* ── 头部 ── */
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) 0;
+  margin-bottom: var(--space-6);
+}
+
+.lobby-header .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.lobby-header .brand-name-img {
+  width: 200px;
+  height: 53px;
+}
+
+.lobby-header .header-links {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── 玩家信息卡 ── */
+.lobby-player-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-gold-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  margin-bottom: var(--space-8);
+}
+
+.lobby-player-card .player-name {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--color-wood-dark);
+  margin-bottom: var(--space-1);
+}
+
+.lobby-player-card .player-level {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+.lobby-player-card .player-stats {
+  display: flex;
+  gap: var(--space-6);
+  margin-top: var(--space-3);
+}
+
+.lobby-player-card .stat-item {
+  text-align: center;
+}
+
+.lobby-player-card .stat-value {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--color-gold);
+}
+
+.lobby-player-card .stat-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* ── 操作按钮（单列居中） ── */
+.lobby-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+  padding: 0 var(--space-4);
+}
+
+.lobby-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-bg-card);
+  border: 2px solid var(--color-wood-light);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  width: 100%;
+  max-width: 360px;
+  min-height: 52px;
+}
+
+.lobby-action-btn:hover {
+  border-color: var(--color-gold);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+  background: var(--color-bg-secondary);
+}
+
+.lobby-action-btn .btn-icon-w {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.lobby-action-btn .btn-label {
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--color-wood);
+  white-space: nowrap;
+}
+
+/* ── 底部链接 ── */
+.lobby-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  margin-top: auto;
+  padding: var(--space-6) 0;
+}
+
+.lobby-link-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+  cursor: pointer;
+}
+
+.lobby-link-item:hover {
+  color: var(--color-gold);
+}
+
+/* ── 移动端 ── */
+@media (max-width: 768px) {
+  .lobby-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .lobby-header .brand-name-img {
+    width: 160px;
+    height: 42px;
+  }
+
+  .lobby-header .header-links {
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .lobby-player-card .player-stats {
+    gap: var(--space-4);
+  }
+
+  .lobby-action-btn {
+    max-width: 100%;
+  }
+
+  .lobby-links {
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+}

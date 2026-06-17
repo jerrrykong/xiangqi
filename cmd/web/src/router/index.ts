@@ -39,6 +39,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/pages/Game.vue'),
     meta: { requiresAuth: true, title: '对局' },
   },
+  {
+    path: '/review/:gameId',
+    name: 'Review',
+    component: () => import('@/pages/Review.vue'),
+    meta: { requiresAuth: true, title: '棋局复盘' },
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('@/pages/Settings.vue'),
+    meta: { requiresAuth: true, title: '系统设置' },
+  },
 ]
 
 const router = createRouter({

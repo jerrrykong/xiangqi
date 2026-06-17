@@ -244,11 +244,11 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
 <style scoped>
 .room-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, var(--color-wood-100) 0%, var(--color-wood-200) 100%);
+  background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
 }
 
 .room-header {
-  background: var(--color-wood-600);
+  background: var(--color-wood);
   color: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
@@ -274,7 +274,7 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
 }
 
 .room-id {
-  color: var(--color-wood-200);
+  color: var(--color-bg-secondary);
   font-size: 0.875rem;
 }
 
@@ -388,7 +388,7 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
 .vs-text {
   font-size: 2.5rem;
   font-weight: bold;
-  color: var(--color-wood-400);
+  color: var(--color-gold-light);
 }
 
 .actions {

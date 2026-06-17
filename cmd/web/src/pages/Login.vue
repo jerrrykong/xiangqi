@@ -1,13 +1,17 @@
+/**
+ * Login — 登录页面
+ * 木质风格卡片 + text-logo SVG + 自定义表单
+ */
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { showToast } from '@/components/common/ui'
 
 const router = useRouter()
+const baseUrl = import.meta.env.BASE_URL
 const authStore = useAuthStore()
 
-const formRef = ref()
 const isLoading = ref(false)
 const errorMessage = ref('')
 
@@ -16,37 +20,59 @@ const form = reactive({
   password: '',
 })
 
-const rules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 4, max: 32, message: '用户名长度在 4 到 32 个字符', trigger: 'blur' },
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, message: '密码至少 8 个字符', trigger: 'blur' },
-  ],
-}
+/** 表单验证错误 */
+const errors = reactive({
+  username: '',
+  password: '',
+})
 
-// 获取 redirect 参数
+/** 获取 redirect 参数 */
 const redirect = (router.currentRoute.value.query.redirect as string) || '/lobby'
 
-// 监听输入，清除错误消息
+/** 监听输入，清除错误 */
 watch(() => form.username, () => {
+  if (errors.username) errors.username = ''
   if (errorMessage.value) errorMessage.value = ''
 })
 watch(() => form.password, () => {
+  if (errors.password) errors.password = ''
   if (errorMessage.value) errorMessage.value = ''
 })
 
+/** 表单验证 */
+function validateForm(): boolean {
+  let valid = true
+  errors.username = ''
+  errors.password = ''
+
+  if (!form.username) {
+    errors.username = '请输入用户名'
+    valid = false
+  } else if (form.username.length < 4 || form.username.length > 32) {
+    errors.username = '用户名长度在 4 到 32 个字符'
+    valid = false
+  }
+
+  if (!form.password) {
+    errors.password = '请输入密码'
+    valid = false
+  } else if (form.password.length < 8) {
+    errors.password = '密码至少 8 个字符'
+    valid = false
+  }
+
+  return valid
+}
+
+/** 提交登录 */
 async function handleLogin() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!validateForm()) return
 
   errorMessage.value = ''
   isLoading.value = true
   try {
     await authStore.login(form.username, form.password)
-    ElMessage.success('登录成功')
+    showToast('登录成功', 'success')
     router.push(redirect)
   } catch (error: any) {
     errorMessage.value = error.message || '登录失败'
@@ -57,180 +83,168 @@ async function handleLogin() {
 </script>
 
 <template>
-  <div class="auth-page">
-    <div class="auth-card card">
-      <h1 class="auth-title">中国象棋</h1>
-      <p class="auth-subtitle">用户登录</p>
+  <div class="login-page">
+    <div class="login-card">
+      <!-- Logo -->
+      <img :src="baseUrl + 'assets/svg/ui/text-logo.svg'" alt="楚汉争锋" class="game-title-img" />
+      <p class="game-subtitle">中国象棋在线对战平台</p>
 
       <!-- 登录中提示 -->
-      <div v-if="isLoading" class="connection-status">
-        <div class="loading-spinner-small"></div>
+      <div v-if="isLoading" class="login-loading">
+        <div class="loading-spinner"></div>
         <span>正在登录...</span>
       </div>
 
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        @submit.prevent="handleLogin"
-      >
-        <el-form-item label="用户名" prop="username">
-          <el-input
+      <!-- 表单 -->
+      <form class="login-form" @submit.prevent="handleLogin">
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input
             v-model="form.username"
+            type="text"
+            class="form-input"
+            :class="{ 'form-input--error': errors.username }"
             placeholder="请输入用户名"
-            size="large"
-            prefix-icon="User"
+            autocomplete="username"
           />
-        </el-form-item>
-
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            placeholder="请输入密码"
-            size="large"
-            prefix-icon="Lock"
-            show-password
-          />
-        </el-form-item>
-
-        <!-- 错误消息 -->
-        <div v-if="errorMessage" class="error-message">
-          <span class="error-icon">⚠️</span>
-          <span class="error-text">{{ errorMessage }}</span>
+          <span v-if="errors.username" class="form-error">{{ errors.username }}</span>
         </div>
 
-        <el-form-item class="form-actions">
-          <el-button
-            type="primary"
-            size="large"
-            class="full-width"
-            :loading="isLoading"
-            native-type="submit"
-          >
-            登录
-          </el-button>
-        </el-form-item>
-      </el-form>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input
+            v-model="form.password"
+            type="password"
+            class="form-input"
+            :class="{ 'form-input--error': errors.password }"
+            placeholder="请输入密码"
+            autocomplete="current-password"
+          />
+          <span v-if="errors.password" class="form-error">{{ errors.password }}</span>
+        </div>
 
-      <div class="auth-footer">
-        <span class="footer-text">还没有账号？</span>
-        <router-link to="/register" class="footer-link">
-          立即注册
+        <!-- 错误消息 -->
+        <div v-if="errorMessage" class="form-error-banner">
+          {{ errorMessage }}
+        </div>
+
+        <!-- 登录按钮 -->
+        <button type="submit" class="btn btn-primary btn--lg btn--block" :disabled="isLoading">
+          {{ isLoading ? '登录中...' : '登 录' }}
+        </button>
+      </form>
+
+      <!-- 注册入口 -->
+      <div class="login-actions">
+        <router-link to="/register" class="btn btn-secondary btn--lg btn--block">
+          注 册
         </router-link>
+      </div>
+
+      <!-- 底部 -->
+      <div class="login-footer">
+        <span>v1.0.0 · 楚漢爭鋒工作室</span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.auth-page {
+.login-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: linear-gradient(135deg, var(--color-wood-100) 0%, var(--color-wood-200) 100%);
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
 }
 
-.auth-card {
+.login-card {
   width: 100%;
-  max-width: 448px;
-  padding: 48px 32px;
+  max-width: 420px;
+  padding: var(--space-12) var(--space-8);
+  background: var(--color-bg-card);
+  border: 3px double var(--color-gold);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
 }
 
-.card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(139, 90, 43, 0.2);
+.game-title-img {
+  width: 280px;
+  height: 75px;
 }
 
-.auth-title {
-  font-size: 1.875rem;
-  font-weight: bold;
-  text-align: center;
-  margin-bottom: 8px;
-  color: var(--color-wood-600);
+.game-subtitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.2em;
 }
 
-.auth-subtitle {
-  text-align: center;
-  color: #6b7280;
-  margin-bottom: 32px;
-}
-
-.full-width {
-  width: 100%;
-}
-
-.form-actions {
-  margin-top: 24px;
-}
-
-.connection-status {
+.login-loading {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 0.875rem;
-  color: #3b82f6;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--color-info);
+  width: 100%;
 }
 
-.loading-spinner-small {
+.loading-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(59, 130, 246, 0.3);
-  border-top-color: #3b82f6;
+  border: 2px solid rgba(37, 99, 235, 0.3);
+  border-top-color: var(--color-info);
   border-radius: 50%;
   animation: spin 1s linear infinite;
+  flex-shrink: 0;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-.error-message {
+.login-form {
+  width: 100%;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.error-icon {
-  font-size: 1rem;
+.form-error-banner {
+  padding: var(--space-3) var(--space-4);
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--color-error);
 }
 
-.error-text {
-  color: #dc2626;
-  font-size: 0.875rem;
+.login-actions {
+  width: 100%;
 }
 
-.auth-footer {
-  text-align: center;
-  margin-top: 16px;
+.login-footer {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
 }
 
-.footer-text {
-  color: #6b7280;
-}
-
-.footer-link {
-  color: var(--color-wood-500);
-  margin-left: 4px;
-  text-decoration: none;
-  transition: color 0.2s;
-}
-
-.footer-link:hover {
-  color: var(--color-wood-600);
+@media (max-width: 768px) {
+  .login-card {
+    padding: var(--space-8) var(--space-5);
+  }
+  .game-title-img {
+    width: 240px;
+    height: 64px;
+  }
 }
 </style>

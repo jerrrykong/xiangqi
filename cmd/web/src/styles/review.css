@@ -1,0 +1,353 @@
+/* ============================================
+   楚汉争锋 — 复盘界面样式
+   与 Demo 完全一致
+   ============================================ */
+
+.review-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 52px);
+  max-width: var(--max-width-content);
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+/* ── 头部 ── */
+.review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-wood-light);
+  flex-shrink: 0;
+}
+
+.review-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--color-wood-dark);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── 主体 ── */
+.review-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.review-board-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: var(--space-6);
+  gap: 20px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* ── 播放控制 ── */
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: var(--color-bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--color-wood-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.pb-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-bg-secondary);
+  color: var(--color-wood);
+  transition: all .15s;
+  font-size: 18px;
+}
+
+.pb-btn:hover {
+  background: var(--color-wood-bg);
+  color: var(--color-gold-dark);
+}
+
+.pb-btn--play {
+  width: 48px;
+  height: 48px;
+  background: var(--color-gold);
+  color: var(--color-text-inverse);
+}
+
+.pb-btn--play:hover {
+  background: var(--color-gold-light);
+}
+
+/* ── 进度条 ── */
+.playback-progress {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--color-bg-secondary);
+  border-radius: 20px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-gold);
+  border-radius: 20px;
+  transition: width .15s;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* ── 速度选项 ── */
+.speed-options {
+  display: flex;
+  gap: 4px;
+}
+
+.speed-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  transition: all .15s;
+}
+
+.speed-btn:hover {
+  color: var(--color-gold);
+  background: var(--color-wood-bg);
+}
+
+.speed-btn.active {
+  color: #fff;
+  background: var(--color-gold);
+}
+
+/* ── 对局信息卡 ── */
+.game-info-card {
+  padding: 16px 24px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-wood-light);
+  border-radius: 12px;
+  min-width: 320px;
+}
+
+.game-info-card .info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-bg-secondary);
+}
+
+.game-info-card .info-row:last-child {
+  border-bottom: none;
+}
+
+.game-info-card .info-label {
+  color: var(--color-text-tertiary);
+}
+
+.game-info-card .info-value {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* 桌面端：对局信息不占用布局空间 */
+.game-info-card--layout {
+  display: none;
+}
+
+.review-sidebar {
+  display: none;
+}
+
+/* ── 复盘弹出面板 ── */
+.review-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: var(--color-bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+
+.review-popup {
+  background: var(--color-bg-card);
+  border: 2px solid var(--color-gold-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  width: 100%;
+  max-width: 520px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.review-popup .popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-wood-light);
+  flex-shrink: 0;
+}
+
+.review-popup .popup-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  color: var(--color-wood-dark);
+}
+
+.review-popup .popup-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 18px;
+  color: var(--color-text-tertiary);
+  transition: all .15s;
+}
+
+.review-popup .popup-close:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-wood);
+}
+
+.review-popup .popup-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px 16px;
+}
+
+/* ── 切换按钮行 ── */
+.review-toggle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.review-toggle-bar .toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-wood);
+  background: var(--color-bg-secondary);
+  transition: all .15s;
+  cursor: pointer;
+  border: none;
+}
+
+.review-toggle-bar .toggle-item:hover {
+  background: var(--color-wood-bg);
+}
+
+.review-toggle-bar .toggle-item.active {
+  background: var(--color-gold);
+  color: #fff;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.toggle-row .toggle-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* ── 移动端 ── */
+@media (max-width: 768px) {
+  .review-header {
+    padding: 10px 12px;
+  }
+
+  .review-title {
+    font-size: var(--text-base);
+  }
+
+  .review-main {
+    flex-direction: column;
+  }
+
+  .review-board-area {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .playback-controls {
+    padding: 12px 16px;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .playback-progress {
+    min-width: 80px;
+  }
+
+  .review-overlay {
+    align-items: flex-end;
+    padding: 0;
+    background: var(--color-bg-overlay);
+  }
+
+  .review-popup {
+    max-width: 100%;
+    max-height: 55vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .review-toggle-bar {
+    display: flex;
+  }
+}

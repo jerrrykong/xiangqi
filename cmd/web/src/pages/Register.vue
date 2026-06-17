@@ -1,13 +1,17 @@
+/**
+ * Register — 注册页面
+ * 与登录页同风格
+ */
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { showToast } from '@/components/common/ui'
 
 const router = useRouter()
+const baseUrl = import.meta.env.BASE_URL
 const authStore = useAuthStore()
 
-const formRef = ref()
 const isLoading = ref(false)
 
 const form = reactive({
@@ -17,53 +21,75 @@ const form = reactive({
   nickname: '',
 })
 
-const validateConfirmPassword = (rule: any, value: string, callback: any) => {
-  if (value !== form.password) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
+const errors = reactive({
+  username: '',
+  password: '',
+  confirmPassword: '',
+  nickname: '',
+})
+
+/** 监听输入清除错误 */
+watch(() => form.username, () => { errors.username = '' })
+watch(() => form.password, () => { errors.password = '' })
+watch(() => form.confirmPassword, () => { errors.confirmPassword = '' })
+
+/** 表单验证 */
+function validateForm(): boolean {
+  let valid = true
+  errors.username = ''
+  errors.password = ''
+  errors.confirmPassword = ''
+  errors.nickname = ''
+
+  if (!form.username) {
+    errors.username = '请输入用户名'
+    valid = false
+  } else if (form.username.length < 4 || form.username.length > 32) {
+    errors.username = '用户名长度在 4 到 32 个字符'
+    valid = false
+  } else if (!/^[a-zA-Z0-9_]+$/.test(form.username)) {
+    errors.username = '用户名只能包含字母、数字和下划线'
+    valid = false
   }
+
+  if (!form.password) {
+    errors.password = '请输入密码'
+    valid = false
+  } else if (form.password.length < 8) {
+    errors.password = '密码至少 8 个字符'
+    valid = false
+  } else if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]/.test(form.password)) {
+    errors.password = '密码必须包含字母和数字'
+    valid = false
+  }
+
+  if (!form.confirmPassword) {
+    errors.confirmPassword = '请确认密码'
+    valid = false
+  } else if (form.confirmPassword !== form.password) {
+    errors.confirmPassword = '两次输入的密码不一致'
+    valid = false
+  }
+
+  if (form.nickname && form.nickname.length > 32) {
+    errors.nickname = '昵称最多 32 个字符'
+    valid = false
+  }
+
+  return valid
 }
 
-const rules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 4, max: 32, message: '用户名长度在 4 到 32 个字符', trigger: 'blur' },
-    {
-      pattern: /^[a-zA-Z0-9_]+$/,
-      message: '用户名只能包含字母、数字和下划线',
-      trigger: 'blur',
-    },
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, message: '密码至少 8 个字符', trigger: 'blur' },
-    {
-      pattern: /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]/,
-      message: '密码必须包含字母和数字',
-      trigger: 'blur',
-    },
-  ],
-  confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
-    { validator: validateConfirmPassword, trigger: 'blur' },
-  ],
-  nickname: [
-    { max: 32, message: '昵称最多 32 个字符', trigger: 'blur' },
-  ],
-}
-
+/** 提交注册 */
 async function handleRegister() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!validateForm()) return
 
   isLoading.value = true
   try {
     await authStore.register(form.username, form.password, form.nickname || undefined)
-    ElMessage.success('注册成功，请登录')
+    showToast('注册成功，请登录', 'success')
     router.push('/login')
   } catch (error: any) {
-    ElMessage.error(error.message || '注册失败')
+    showToast(error.message || '注册失败', 'error')
   } finally {
     isLoading.value = false
   }
@@ -71,174 +97,179 @@ async function handleRegister() {
 </script>
 
 <template>
-  <div class="auth-page">
-    <div class="auth-card card">
-      <h1 class="auth-title">中国象棋</h1>
-      <p class="auth-subtitle">用户注册</p>
+  <div class="login-page">
+    <div class="login-card">
+      <!-- Logo -->
+      <img :src="baseUrl + 'assets/svg/ui/text-logo.svg'" alt="楚汉争锋" class="game-title-img" />
+      <p class="game-subtitle">用户注册</p>
 
       <!-- 注册中提示 -->
-      <div v-if="isLoading" class="connection-status">
-        <div class="loading-spinner-small"></div>
+      <div v-if="isLoading" class="login-loading">
+        <div class="loading-spinner"></div>
         <span>正在注册...</span>
       </div>
 
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        @submit.prevent="handleRegister"
-      >
-        <el-form-item label="用户名" prop="username">
-          <el-input
+      <!-- 表单 -->
+      <form class="login-form" @submit.prevent="handleRegister">
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input
             v-model="form.username"
+            type="text"
+            class="form-input"
+            :class="{ 'form-input--error': errors.username }"
             placeholder="4-32位字母、数字、下划线"
-            size="large"
-            prefix-icon="User"
+            autocomplete="username"
           />
-        </el-form-item>
+          <span v-if="errors.username" class="form-error">{{ errors.username }}</span>
+        </div>
 
-        <el-form-item label="昵称" prop="nickname">
-          <el-input
+        <div class="form-group">
+          <label class="form-label">昵称</label>
+          <input
             v-model="form.nickname"
+            type="text"
+            class="form-input"
+            :class="{ 'form-input--error': errors.nickname }"
             placeholder="选填，默认使用用户名"
-            size="large"
-            prefix-icon="UserFilled"
           />
-        </el-form-item>
+          <span v-if="errors.nickname" class="form-error">{{ errors.nickname }}</span>
+        </div>
 
-        <el-form-item label="密码" prop="password">
-          <el-input
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input
             v-model="form.password"
             type="password"
+            class="form-input"
+            :class="{ 'form-input--error': errors.password }"
             placeholder="至少8位，包含字母和数字"
-            size="large"
-            prefix-icon="Lock"
-            show-password
+            autocomplete="new-password"
           />
-        </el-form-item>
+          <span v-if="errors.password" class="form-error">{{ errors.password }}</span>
+        </div>
 
-        <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input
+        <div class="form-group">
+          <label class="form-label">确认密码</label>
+          <input
             v-model="form.confirmPassword"
             type="password"
+            class="form-input"
+            :class="{ 'form-input--error': errors.confirmPassword }"
             placeholder="请再次输入密码"
-            size="large"
-            prefix-icon="Lock"
-            show-password
+            autocomplete="new-password"
           />
-        </el-form-item>
+          <span v-if="errors.confirmPassword" class="form-error">{{ errors.confirmPassword }}</span>
+        </div>
 
-        <el-form-item class="form-actions">
-          <el-button
-            type="primary"
-            size="large"
-            class="full-width"
-            :loading="isLoading"
-            native-type="submit"
-          >
-            注册
-          </el-button>
-        </el-form-item>
-      </el-form>
+        <!-- 注册按钮 -->
+        <button type="submit" class="btn btn-primary btn--lg btn--block" :disabled="isLoading">
+          {{ isLoading ? '注册中...' : '注 册' }}
+        </button>
+      </form>
 
-      <div class="auth-footer">
-        <span class="footer-text">已有账号？</span>
-        <router-link to="/login" class="footer-link">
-          立即登录
+      <!-- 登录入口 -->
+      <div class="login-actions">
+        <router-link to="/login" class="btn btn-secondary btn--lg btn--block">
+          返回登录
         </router-link>
+      </div>
+
+      <!-- 底部 -->
+      <div class="login-footer">
+        <span>v1.0.0 · 楚漢爭鋒工作室</span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.auth-page {
+.login-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: linear-gradient(135deg, var(--color-wood-100) 0%, var(--color-wood-200) 100%);
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
 }
 
-.auth-card {
+.login-card {
   width: 100%;
-  max-width: 448px;
-  padding: 48px 32px;
+  max-width: 420px;
+  padding: var(--space-10) var(--space-8);
+  background: var(--color-bg-card);
+  border: 3px double var(--color-gold);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
 }
 
-.card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(139, 90, 43, 0.2);
+.game-title-img {
+  width: 280px;
+  height: 75px;
 }
 
-.auth-title {
-  font-size: 1.875rem;
-  font-weight: bold;
-  text-align: center;
-  margin-bottom: 8px;
-  color: var(--color-wood-600);
+.game-subtitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.2em;
 }
 
-.auth-subtitle {
-  text-align: center;
-  color: #6b7280;
-  margin-bottom: 32px;
-}
-
-.full-width {
-  width: 100%;
-}
-
-.form-actions {
-  margin-top: 24px;
-}
-
-.connection-status {
+.login-loading {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 0.875rem;
-  color: #3b82f6;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--color-info);
+  width: 100%;
 }
 
-.loading-spinner-small {
+.loading-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(59, 130, 246, 0.3);
-  border-top-color: #3b82f6;
+  border: 2px solid rgba(37, 99, 235, 0.3);
+  border-top-color: var(--color-info);
   border-radius: 50%;
   animation: spin 1s linear infinite;
+  flex-shrink: 0;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-.auth-footer {
-  text-align: center;
-  margin-top: 16px;
+.login-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.footer-text {
-  color: #6b7280;
+.login-actions {
+  width: 100%;
 }
 
-.footer-link {
-  color: var(--color-wood-500);
-  margin-left: 4px;
-  text-decoration: none;
-  transition: color 0.2s;
+.login-footer {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
 }
 
-.footer-link:hover {
-  color: var(--color-wood-600);
+@media (max-width: 768px) {
+  .login-card {
+    padding: var(--space-6) var(--space-5);
+  }
+  .game-title-img {
+    width: 240px;
+    height: 64px;
+  }
 }
 </style>

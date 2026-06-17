@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>楚漢爭鋒 — 界面预览</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+/* ===== CSS 变量 ===== */
+:root {
+  --color-bg-primary:          #FFFBEB;
+  --color-bg-secondary:        #FFF7D6;
+  --color-bg-card:             #FFFFFF;
+  --color-bg-overlay:          rgba(0, 0, 0, 0.45);
+  --color-gold:                #D97706;
+  --color-gold-light:          #F59E0B;
+  --color-gold-dark:           #B45309;
+  --color-gold-pressed:        #92400E;
+  --color-wood-dark:           #78350F;
+  --color-wood:                #92400E;
+  --color-wood-medium:         #B45309;
+  --color-wood-light:          #D97706;
+  --color-wood-bg:             #FDE68A;
+  --color-text-primary:        #451A03;
+  --color-text-secondary:      #78350F;
+  --color-text-tertiary:       #A16207;
+  --color-text-inverse:        #FFFBEB;
+  --color-text-muted:          #D4A574;
+  --color-success:             #059669;
+  --color-error:               #DC2626;
+  --color-warning:             #D97706;
+  --font-serif:                'Noto Serif TC', 'Source Han Serif SC', 'SimSun', serif;
+  --font-sans:                 'Noto Sans TC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono:                 'Consolas', 'Source Code Pro', monospace;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-base: 1rem; --text-lg: 1.125rem;
+  --text-xl: 1.25rem; --text-2xl: 1.5rem; --text-3xl: 1.875rem; --text-4xl: 2.25rem;
+  --weight-light: 300; --weight-normal: 400; --weight-medium: 500;
+  --weight-semibold: 600; --weight-bold: 700;
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
+  --space-12: 3rem; --space-16: 4rem;
+  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --radius-xl: 16px; --radius-2xl: 24px; --radius-full: 9999px;
+  --shadow-sm: 0 1px 3px rgba(120,53,15,0.12);
+  --shadow-md: 0 4px 12px rgba(120,53,15,0.15);
+  --shadow-lg: 0 8px 24px rgba(120,53,15,0.2);
+  --shadow-xl: 0 12px 40px rgba(120,53,15,0.25);
+  --shadow-inner: inset 0 2px 4px rgba(120,53,15,0.1);
+  --transition-fast: 150ms ease; --transition-normal: 250ms ease;
+  --max-width-content: 1440px;
+  /* 棋盘原生尺寸 */
+  --board-w: 540px; --board-h: 600px;
+  --cell: 60px; --pad: 30px;
+  --piece-size: 48px;
+}
+
+/* ===== 全局重置 ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);font-size:var(--text-base);color:var(--color-text-primary);background:var(--color-bg-primary);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--color-gold);text-decoration:none}
+a:hover{color:var(--color-gold-dark)}
+button{border:none;background:none;font:inherit;cursor:pointer}
+img{max-width:100%;display:block}
+
+/* ===== 演示页头 ===== */
+.demo-header{position:fixed;top:0;left:0;right:0;z-index:1000;background:linear-gradient(135deg,var(--color-wood-dark),var(--color-wood));padding:8px 16px;display:flex;align-items:center;gap:8px;box-shadow:var(--shadow-lg)}
+.demo-header .demo-logo{height:28px}
+.demo-tabs{display:flex;gap:4px;margin-left:16px;flex-wrap:wrap}
+.demo-tab{padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;color:rgba(255,255,255,.6);transition:all .15s;white-space:nowrap}
+.demo-tab:hover{color:rgba(255,255,255,.85);background:rgba(255,255,255,.1)}
+.demo-tab.active{color:#451A03;background:var(--color-wood-bg)}
+.demo-viewport{margin-top:52px;min-height:calc(100vh - 52px);position:relative}
+.demo-label{position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);color:#fff;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;z-index:10;pointer-events:none}
+
+/* ===== 按钮 ===== */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);padding:var(--space-3) var(--space-6);font-family:var(--font-serif);font-size:var(--text-base);font-weight:var(--weight-semibold);border-radius:var(--radius-md);border:2px solid transparent;cursor:pointer;user-select:none;white-space:nowrap;transition:all var(--transition-fast)}
+.btn:disabled{cursor:not-allowed;opacity:.5}
+.btn-primary{background:linear-gradient(135deg,var(--color-gold-light),var(--color-gold));color:var(--color-text-inverse);border-color:var(--color-gold-dark);box-shadow:var(--shadow-sm),0 2px 4px rgba(180,83,9,.3)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:var(--shadow-md),0 3px 6px rgba(180,83,9,.35)}
+.btn-primary:active{transform:translateY(1px);box-shadow:var(--shadow-inner)}
+.btn-secondary{background:var(--color-bg-card);color:var(--color-wood);border-color:var(--color-wood-light);box-shadow:var(--shadow-sm)}
+.btn-secondary:hover{color:var(--color-gold-dark);border-color:var(--color-gold);transform:translateY(-1px)}
+.btn-secondary:active{transform:translateY(1px);box-shadow:var(--shadow-inner)}
+.btn-danger{background:var(--color-error);color:#fff;border-color:#B91C1C}
+.btn-text{background:transparent;color:var(--color-wood);border:none;padding:var(--space-2) var(--space-3);box-shadow:none}
+.btn-text:hover{color:var(--color-gold);background:rgba(217,119,6,.08);border-radius:var(--radius-sm)}
+.btn--sm{padding:var(--space-2) var(--space-4);font-size:var(--text-sm)}
+.btn--lg{padding:var(--space-4) var(--space-8);font-size:var(--text-lg)}
+.btn--block{width:100%}
+
+/* ===== 卡片 ===== */
+.card{background:var(--color-bg-card);border:1px solid var(--color-wood-light);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:var(--space-6)}
+.card--raised{box-shadow:var(--shadow-lg)}
+.card--gold{border-color:var(--color-gold);box-shadow:var(--shadow-sm),0 0 0 1px var(--color-gold-light)}
+
+/* ===== 通用 ===== */
+.divider{width:100%;height:1px;background:linear-gradient(to right,transparent,var(--color-gold-light),var(--color-gold),var(--color-gold-light),transparent);margin:var(--space-4) 0}
+.text-center{text-align:center}
+
+/* ===== 表单 ===== */
+.form-input{width:100%;padding:var(--space-3) var(--space-4);font-family:var(--font-sans);font-size:var(--text-base);color:var(--color-text-primary);background:var(--color-bg-card);border:2px solid var(--color-wood-light);border-radius:var(--radius-md);transition:all var(--transition-fast)}
+.form-input:hover{border-color:var(--color-gold-light)}
+.form-input:focus{border-color:var(--color-gold);box-shadow:0 0 0 3px rgba(217,119,6,.1);outline:none}
+.form-input::placeholder{color:var(--color-text-muted)}
+
+/* ===== 登录页 ===== */
+.login-page{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 52px);padding:var(--space-6);background:linear-gradient(135deg,var(--color-bg-primary) 0%,var(--color-bg-secondary) 50%,var(--color-wood-bg) 100%)}
+.login-card{width:100%;max-width:420px;padding:var(--space-10) var(--space-8);background:var(--color-bg-card);border:2px solid var(--color-gold-light);border-radius:var(--radius-2xl);box-shadow:var(--shadow-xl);text-align:center}
+.login-card .game-title-img{display:block;width:280px;height:75px;margin:0 auto 4px}
+.login-card .game-subtitle{font-family:var(--font-serif);font-size:var(--text-sm);color:var(--color-text-tertiary);letter-spacing:.2em;margin-bottom:var(--space-8)}
+.login-form{display:flex;flex-direction:column;gap:var(--space-5);margin-bottom:var(--space-6)}
+.login-form .form-input{text-align:center;padding:var(--space-4)}
+.login-actions{display:flex;flex-direction:column;gap:var(--space-3)}
+.login-guest{margin-top:var(--space-6)}
+.login-footer{margin-top:var(--space-8);font-size:var(--text-xs);color:var(--color-text-muted)}
+
+/* ===== 大厅页 ===== */
+.lobby-page{max-width:var(--max-width-content);margin:0 auto;padding:var(--space-6)}
+.lobby-header{display:flex;align-items:center;justify-content:space-between;padding:var(--space-4) 0;margin-bottom:var(--space-6)}
+.lobby-header .brand{display:flex;align-items:center;gap:var(--space-3)}
+.lobby-header .brand-name-img{width:200px;height:53px}
+.lobby-header .header-links{display:flex;align-items:center;gap:12px}
+.lobby-player-card{display:flex;align-items:center;gap:var(--space-5);padding:var(--space-6);background:var(--color-bg-card);border:1px solid var(--color-gold-light);border-radius:var(--radius-xl);box-shadow:var(--shadow-md);margin-bottom:var(--space-8)}
+.lobby-player-card .player-name{font-family:var(--font-serif);font-size:var(--text-xl);font-weight:var(--weight-bold);color:var(--color-wood-dark);margin-bottom:var(--space-1)}
+.lobby-player-card .player-level{font-size:var(--text-sm);color:var(--color-text-tertiary)}
+.lobby-player-card .player-stats{display:flex;gap:var(--space-6);margin-top:var(--space-3)}
+.lobby-player-card .stat-item{text-align:center}
+.lobby-player-card .stat-value{font-family:var(--font-serif);font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--color-gold)}
+.lobby-player-card .stat-label{font-size:var(--text-xs);color:var(--color-text-tertiary)}
+.lobby-actions{display:flex;flex-direction:column;align-items:center;gap:var(--space-4);margin-bottom:var(--space-8);padding:0 var(--space-4)}
+.lobby-action-btn{display:flex;align-items:center;justify-content:center;gap:var(--space-3);padding:var(--space-4) var(--space-6);background:var(--color-bg-card);border:2px solid var(--color-wood-light);border-radius:var(--radius-lg);cursor:pointer;transition:all var(--transition-normal);width:100%;max-width:360px;min-height:52px}
+.lobby-action-btn:hover{border-color:var(--color-gold);box-shadow:var(--shadow-md);transform:translateY(-2px);background:var(--color-bg-secondary)}
+.lobby-action-btn .btn-icon-w{font-size:28px;line-height:1;flex-shrink:0}
+.lobby-action-btn .btn-label{font-family:var(--font-serif);font-size:var(--text-base);font-weight:var(--weight-semibold);color:var(--color-wood);white-space:nowrap}
+.lobby-links{display:flex;align-items:center;justify-content:center;gap:var(--space-6);margin-top:auto;padding:var(--space-6) 0}
+.lobby-link-item{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-text-secondary);transition:color var(--transition-fast);cursor:pointer}
+.lobby-link-item:hover{color:var(--color-gold)}
+.avatar{width:64px;height:64px;border-radius:50%;border:2px solid var(--color-gold);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--color-bg-secondary);color:var(--color-wood);font-size:28px}
+
+/* ===== 大厅弹窗（全屏铺满） ===== */
+.lobby-overlay{position:fixed;inset:0;z-index:2000;background:var(--color-bg-primary);display:flex;flex-direction:column}
+.lobby-overlay .overlay-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--color-bg-secondary);border-bottom:1px solid var(--color-wood-light);flex-shrink:0}
+.lobby-overlay .overlay-title{font-family:var(--font-serif);font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--color-wood-dark)}
+.lobby-overlay .overlay-close{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:20px;color:var(--color-text-tertiary);transition:all .15s}
+.lobby-overlay .overlay-close:hover{background:rgba(217,119,6,.12);color:var(--color-wood)}
+.lobby-overlay .overlay-body{flex:1;overflow-y:auto;padding:16px 20px}
+.lobby-overlay .overlay-body .popup-rank-item,.lobby-overlay .overlay-body .popup-history-item{border-bottom-color:var(--color-bg-secondary)}
+/* 弹窗入场 */
+.overlay-enter-active{animation:overlayIn .25s ease}
+.overlay-leave-active{animation:overlayIn .2s ease reverse}
+@keyframes overlayIn{from{opacity:0}to{opacity:1}}
+.popup-rank-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-bg-secondary)}
+.popup-rank-item:last-child{border-bottom:none}
+.popup-rank{width:32px;text-align:center;font-family:var(--font-serif);font-size:18px;font-weight:700;color:var(--color-gold);flex-shrink:0}
+.popup-rank.gold{color:#FFD700}.popup-rank.silver{color:#C0C0C0}.popup-rank.bronze{color:#CD7F32}
+.popup-rank-name{font-family:var(--font-serif);font-size:15px;font-weight:500;color:var(--color-text-primary);flex:1}
+.popup-rank-info{font-size:12px;color:var(--color-text-tertiary)}
+.popup-rank-score{font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--color-wood);min-width:60px;text-align:right}
+.popup-history-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-bg-secondary)}
+.popup-history-item:last-child{border-bottom:none}
+.popup-result{font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;flex-shrink:0}
+.popup-result.win{background:rgba(5,150,105,.12);color:var(--color-success)}
+.popup-result.lose{background:rgba(220,38,38,.12);color:var(--color-error)}
+.popup-result.draw{background:rgba(217,119,6,.12);color:var(--color-warning)}
+/* ===== 对局页 ===== */
+.game-page{display:flex;flex-direction:column;height:calc(100vh - 52px);max-width:var(--max-width-content);margin:0 auto;overflow:hidden;background:var(--color-bg-primary)}
+.game-topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 24px;background:var(--color-bg-secondary);border-bottom:1px solid var(--color-wood-light);flex-shrink:0}
+.game-topbar .game-title-img{width:180px;height:48px}
+.game-topbar .game-info{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--color-text-secondary)}
+.turn-indicator{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:var(--weight-medium)}
+.turn-red{background:rgba(197,48,48,.1);color:#C53030}
+.turn-black{background:rgba(45,55,72,.1);color:#2D3748}
+.game-main{flex:1;display:flex;overflow:hidden}
+.game-center{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.game-opponent,.game-player{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--color-bg-card);flex-shrink:0}
+.game-opponent{border-bottom:1px solid var(--color-wood-light)}
+.game-player{border-top:1px solid var(--color-wood-light)}
+.game-opponent .ava,.game-player .ava{width:44px;height:44px;border-radius:50%;border:2px solid var(--color-gold-light);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--color-bg-secondary);color:#2D3748;font-weight:700;font-size:20px}
+.game-player .ava{border-color:var(--color-gold);color:#C53030}
+.opp-info{flex:1;min-width:0}
+.opp-name{font-family:var(--font-serif);font-size:15px;font-weight:var(--weight-semibold);color:var(--color-wood-dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opp-level{font-size:12px;color:var(--color-text-tertiary);white-space:nowrap}
+.opp-timer{font-family:var(--font-mono);font-size:var(--text-2xl);font-weight:var(--weight-bold);color:var(--color-wood);background:var(--color-bg-secondary);padding:8px 16px;border-radius:8px;min-width:85px;text-align:center;flex-shrink:0}
+.opp-timer--warn{color:var(--color-error);animation:blink .5s infinite alternate}
+@keyframes blink{from{opacity:1}to{opacity:.5}}
+/* 棋盘区域：自适应缩放，居中、四周留白 */
+.game-board-area{flex:1;display:flex;align-items:center;justify-content:center;padding:var(--space-6);overflow:auto;min-height:0;min-width:0}
+
+/* 棋盘 layout 由 JS 动态控制宽高；原生 540×600，棋子 48×48 */
+.board-frame{position:relative;flex-shrink:0;overflow:hidden}
+.board-frame img.board-bg{width:100%;height:100%;position:absolute;inset:0}
+.piece-el{position:absolute;cursor:pointer;transition:transform .15s,filter .15s;z-index:10;display:flex;align-items:center;justify-content:center}
+.piece-el:hover{transform:translateY(-2px);z-index:20}
+.piece-el img{width:100%;height:100%;filter:drop-shadow(0 3px 4px rgba(92,58,30,.35)) drop-shadow(0 1px 2px rgba(92,58,30,.2))}
+.piece-el:hover img{filter:drop-shadow(0 6px 8px rgba(92,58,30,.4)) drop-shadow(0 2px 4px rgba(92,58,30,.25))}
+.piece-el.sel img{filter:drop-shadow(0 0 8px rgba(217,119,6,.6)) drop-shadow(0 3px 4px rgba(92,58,30,.35));animation:glow 1.2s ease-in-out infinite alternate}
+@keyframes glow{from{filter:drop-shadow(0 0 6px rgba(217,119,6,.4)) drop-shadow(0 3px 4px rgba(92,58,30,.35))}to{filter:drop-shadow(0 0 12px rgba(217,119,6,.8)) drop-shadow(0 3px 4px rgba(92,58,30,.35))}}
+
+/* 操作按钮行 — 棋盘正下方居中 */
+.game-actions-inline{display:flex;gap:8px;justify-content:center;padding:10px 16px 6px;flex-shrink:0;flex-wrap:wrap}
+.game-actions-inline .btn{padding:8px 18px;font-size:14px;border-radius:var(--radius-md)}
+
+/* 着法侧栏 */
+.game-sidebar{width:280px;display:flex;flex-direction:column;border-left:1px solid var(--color-wood-light);background:var(--color-bg-card);flex-shrink:0;overflow:hidden}
+.sidebar-header{padding:16px 20px;font-family:var(--font-serif);font-size:15px;font-weight:var(--weight-semibold);color:var(--color-wood);border-bottom:1px solid var(--color-wood-light);flex-shrink:0}
+.move-list{flex:1;overflow-y:auto;padding:8px}
+.move-item{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer;transition:background .15s}
+.move-item:hover{background:var(--color-bg-secondary)}
+.move-item.active{background:var(--color-piece-move-hint, rgba(217,119,6,.2));font-weight:500}
+.move-num{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:24px}
+.move-red{flex:1;color:#C53030}
+.move-black{flex:1;color:#2D3748}
+/* 侧栏操作按钮已移至棋盘下方 .game-actions-inline；此处保留兼容但隐藏 */
+.game-actions-bar{display:none}
+
+/* ===== 复盘页 ===== */
+.review-page{display:flex;flex-direction:column;height:calc(100vh - 52px);max-width:var(--max-width-content);margin:0 auto;overflow:hidden;background:var(--color-bg-primary)}
+.review-header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--color-bg-secondary);border-bottom:1px solid var(--color-wood-light);flex-shrink:0}
+.review-title{font-family:var(--font-serif);font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--color-wood-dark)}
+.header-actions{display:flex;align-items:center;gap:12px}
+.review-main{flex:1;display:flex;overflow:hidden}
+.review-board-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:var(--space-6);gap:20px;overflow-y:auto;min-height:0}
+.playback-controls{display:flex;align-items:center;gap:16px;padding:16px 24px;background:var(--color-bg-card);border-radius:12px;border:1px solid var(--color-wood-light);box-shadow:var(--shadow-sm)}
+.pb-btn{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--color-bg-secondary);color:var(--color-wood);transition:all .15s;font-size:18px}
+.pb-btn:hover{background:var(--color-wood-bg);color:var(--color-gold-dark)}
+.pb-btn--play{width:48px;height:48px;background:var(--color-gold);color:var(--color-text-inverse)}
+.pb-btn--play:hover{background:var(--color-gold-light)}
+.playback-progress{flex:1;display:flex;flex-direction:column;gap:4px;min-width:100px}
+.progress-bar{width:100%;height:6px;background:var(--color-bg-secondary);border-radius:20px;overflow:hidden;cursor:pointer}
+.progress-fill{height:100%;background:var(--color-gold);border-radius:20px;transition:width .15s}
+.progress-label{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)}
+.speed-options{display:flex;gap:4px}
+.speed-btn{padding:4px 12px;font-size:12px;font-weight:500;border-radius:4px;color:var(--color-text-secondary);background:var(--color-bg-secondary);transition:all .15s}
+.speed-btn:hover{color:var(--color-gold);background:var(--color-wood-bg)}
+.speed-btn.active{color:#fff;background:var(--color-gold)}
+.game-info-card{padding:16px 24px;background:var(--color-bg-card);border:1px solid var(--color-wood-light);border-radius:12px;min-width:320px}
+.game-info-card .info-row{display:flex;justify-content:space-between;padding:8px 0;font-size:13px;border-bottom:1px solid var(--color-bg-secondary)}
+.game-info-card .info-row:last-child{border-bottom:none}
+.game-info-card .info-label{color:var(--color-text-tertiary)}
+.game-info-card .info-value{font-weight:500;color:var(--color-text-primary)}
+/* 桌面端：对局信息不占用布局空间，仅弹出显示 */
+.game-info-card--layout{display:none}
+.review-sidebar{display:none}
+/* 复盘弹出面板（桌面端居中弹出） */
+.review-overlay{position:fixed;inset:0;z-index:2000;background:var(--color-bg-overlay);display:flex;align-items:center;justify-content:center;padding:var(--space-6)}
+.review-popup{background:var(--color-bg-card);border:2px solid var(--color-gold-light);border-radius:var(--radius-xl);box-shadow:var(--shadow-xl);width:100%;max-width:520px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden}
+.review-popup .popup-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--color-wood-light);flex-shrink:0}
+.review-popup .popup-title{font-family:var(--font-serif);font-size:var(--text-base);font-weight:var(--weight-bold);color:var(--color-wood-dark)}
+.review-popup .popup-close{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:18px;color:var(--color-text-tertiary);transition:all .15s}
+.review-popup .popup-close:hover{background:var(--color-bg-secondary);color:var(--color-wood)}
+.review-popup .popup-body{flex:1;overflow-y:auto;padding:8px 12px 16px}
+/* 复盘页面内的切换按钮行 */
+.review-toggle-bar{display:flex;align-items:center;justify-content:center;gap:12px;padding:0;flex-shrink:0}
+.review-toggle-bar .toggle-item{display:flex;align-items:center;gap:4px;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;color:var(--color-wood);background:var(--color-bg-secondary);transition:all .15s;cursor:pointer;border:none}
+.review-toggle-bar .toggle-item:hover{background:var(--color-wood-bg)}
+.review-toggle-bar .toggle-item.active{background:var(--color-gold);color:#fff}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+.toggle-row .toggle-label{font-size:13px;color:var(--color-text-secondary)}
+
+/* ===== 设置页 ===== */
+.settings-page{max-width:640px;margin:0 auto;padding:var(--space-10) var(--space-6)}
+.settings-header{display:flex;align-items:center;gap:12px;padding:16px 0;margin-bottom:24px}
+.settings-section{margin-bottom:32px}
+.settings-section-title{font-family:var(--font-serif);font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--color-wood-dark);margin-bottom:16px}
+.settings-group{background:var(--color-bg-card);border:1px solid var(--color-wood-light);border-radius:12px;overflow:hidden}
+.settings-item{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--color-bg-secondary);transition:background .15s}
+.settings-item:last-child{border-bottom:none}
+.settings-item:hover{background:var(--color-bg-secondary)}
+.settings-item .item-label{font-size:15px;font-weight:500;color:var(--color-text-primary)}
+.settings-item .item-desc{font-size:12px;color:var(--color-text-tertiary);margin-top:2px}
+.settings-item .item-value{font-size:13px;color:var(--color-text-secondary)}
+.settings-about{margin-top:24px;text-align:center;font-size:12px;color:var(--color-text-muted)}
+.settings-about .about-logo-img{width:240px;height:64px;margin:0 auto 8px;display:block}
+
+/* ===== 移动端底部可折叠面板 ===== */
+.mobile-panel-overlay{display:none;position:fixed;inset:0;z-index:1500;background:var(--color-bg-overlay)}
+.mobile-panel-overlay.open{display:block}
+.mobile-panel-sheet{position:fixed;bottom:0;left:0;right:0;z-index:1501;max-height:55vh;background:var(--color-bg-card);border-top:2px solid var(--color-gold-light);border-radius:16px 16px 0 0;box-shadow:var(--shadow-xl);display:flex;flex-direction:column;overflow:hidden;transform:translateY(100%);transition:transform .3s ease}
+.mobile-panel-sheet.open{transform:translateY(0)}
+.mobile-toggle-bar{display:none;align-items:center;justify-content:center;gap:var(--space-4);padding:10px 16px;background:var(--color-bg-card);border-top:1px solid var(--color-wood-light);flex-shrink:0}
+.mobile-toggle-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;color:var(--color-wood);background:var(--color-bg-secondary);transition:all .15s}
+.mobile-toggle-btn:hover{background:var(--color-wood-bg)}
+.mobile-toggle-btn.active{background:var(--color-gold);color:#fff}
+.mobile-panel-handle{width:36px;height:4px;background:var(--color-text-muted);border-radius:4px;margin:10px auto 0;flex-shrink:0}
+.mobile-panel-header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px 8px;font-family:var(--font-serif);font-size:14px;font-weight:600;color:var(--color-wood);flex-shrink:0}
+.mobile-panel-body{flex:1;overflow-y:auto;padding:0 12px 16px}
+
+/* ===== 响应式：移动端 ===== */
+@media (max-width: 768px) {
+  .demo-header{padding:6px 10px}
+  .demo-tabs{gap:2px;margin-left:8px;overflow-x:auto}
+  .demo-tab{padding:5px 10px;font-size:11px}
+
+  /* 登录 */
+  .login-card{padding:var(--space-8) var(--space-5)}
+  .login-card .game-title-img{width:240px;height:64px}
+
+  /* 大厅 — 移动端 */
+  .lobby-header{flex-direction:column;gap:12px;align-items:flex-start}
+  .lobby-header .brand-name-img{width:160px;height:42px}
+  .lobby-header .header-links{gap:4px;flex-wrap:wrap}
+  .lobby-player-card .player-stats{gap:var(--space-4)}
+  .lobby-action-btn{max-width:100%}
+  .lobby-links{flex-wrap:wrap;gap:var(--space-4)}
+
+  /* 对局 — 移动端 */
+  .game-page{height:calc(100vh - 52px)}
+  .game-topbar{padding:8px 12px}
+  .game-topbar .game-title-img{width:130px;height:35px}
+  .game-topbar .game-info{gap:8px;font-size:11px}
+  .turn-indicator{padding:3px 8px;font-size:11px}
+  .game-main{flex-direction:column}
+  .game-opponent,.game-player{padding:8px 12px;gap:8px}
+  .game-opponent .ava,.game-player .ava{width:32px;height:32px;font-size:16px}
+  .opp-name{font-size:13px}
+  .opp-level{font-size:11px}
+  .opp-timer{font-size:var(--text-lg);padding:6px 10px;min-width:60px}
+
+  /* 棋盘由 JS 动态缩放，移动端只需减少内边距 + 最小高度 */
+  .game-board-area{padding:6px}
+
+  /* 操作按钮移动端紧凑 */
+  .game-actions-inline{padding:6px 8px 4px;gap:6px}
+  .game-actions-inline .btn{padding:7px 14px;font-size:13px}
+
+  /* 桌面侧栏隐藏 */
+  .game-sidebar{display:none}
+  /* 移动端底部切换栏 */
+  .mobile-toggle-bar{display:flex}
+  .mobile-panel-overlay.open{display:block}
+  .mobile-panel-sheet.open{transform:translateY(0)}
+
+  /* 复盘 — 移动端 */
+  .review-header{padding:10px 12px}
+  .review-title{font-size:var(--text-base)}
+  .review-main{flex-direction:column}
+  .review-board-area{padding:12px;gap:12px}
+  .playback-controls{padding:12px 16px;gap:8px;flex-wrap:wrap;justify-content:center}
+  .playback-progress{min-width:80px}
+  /* 桌面弹出 → 移动端改为底部面板 */
+  .review-overlay{align-items:flex-end;padding:0;background:var(--color-bg-overlay)}
+  .review-popup{max-width:100%;max-height:55vh;border-radius:16px 16px 0 0}
+  .review-toggle-bar{display:flex}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- ===== Demo Header ===== -->
+  <div class="demo-header">
+    <img src="assets/svg/ui/logo.svg" class="demo-logo" alt="Logo">
+    <div class="demo-tabs">
+      <button
+        v-for="tab in tabs" :key="tab.id"
+        class="demo-tab" :class="{ active: currentTab === tab.id }"
+        @click="currentTab = tab.id"
+      >{{ tab.label }}</button>
+    </div>
+  </div>
+
+  <div class="demo-viewport">
+    <div class="demo-label">{{ tabs.find(t=>t.id===currentTab)?.label }}</div>
+
+    <!-- ========== 登录页 ========== -->
+    <div v-if="currentTab === 'login'" class="login-page">
+      <div class="login-card">
+        <!-- 只保留横向文字 Logo -->
+        <img src="assets/svg/ui/text-logo.svg" class="game-title-img" alt="楚漢爭鋒">
+        <p class="game-subtitle">中国象棋在线对战平台</p>
+        <div class="login-form">
+          <input class="form-input" placeholder="请输入用户名" v-model="loginForm.username">
+          <input class="form-input" type="password" placeholder="请输入密码" v-model="loginForm.password">
+        </div>
+        <div class="login-actions">
+          <button class="btn btn-primary btn--block btn--lg" @click="currentTab='lobby'">登 录</button>
+          <button class="btn btn-secondary btn--block">注 册</button>
+        </div>
+        <div class="login-guest">
+          <button class="btn btn-text">游客模式</button>
+        </div>
+        <div class="login-footer">v1.0.0 · 楚漢爭鋒工作室</div>
+      </div>
+    </div>
+
+    <!-- ========== 大厅页 ========== -->
+    <div v-if="currentTab === 'lobby'" class="lobby-page">
+      <div class="lobby-header">
+        <div class="brand">
+          <!-- 去掉了圆 Logo，只保留横向文字 Logo -->
+          <img src="assets/svg/ui/text-logo.svg" class="brand-name-img" alt="楚漢爭鋒">
+        </div>
+        <div class="header-links">
+          <button class="btn btn-text" @click="showLeaderboard=true">🏆 排行榜</button>
+          <button class="btn btn-text" @click="showHistory=true">📋 历史记录</button>
+          <button class="btn btn-text" @click="currentTab='settings'">⚙ 设置</button>
+        </div>
+      </div>
+
+      <div class="lobby-player-card">
+        <div class="avatar">👤</div>
+        <div style="flex:1">
+          <div class="player-name">张三丰</div>
+          <div class="player-level">业余九段</div>
+          <div class="player-stats">
+            <div class="stat-item"><div class="stat-value">256</div><div class="stat-label">胜</div></div>
+            <div class="stat-item"><div class="stat-value">48</div><div class="stat-label">负</div></div>
+            <div class="stat-item"><div class="stat-value">12</div><div class="stat-label">和</div></div>
+            <div class="stat-item"><div class="stat-value">84.2%</div><div class="stat-label">胜率</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 简化：单列上下排列居中 -->
+      <div class="lobby-actions">
+        <div class="lobby-action-btn" @click="currentTab='game'">
+          <span class="btn-icon-w">⚔</span>
+          <span class="btn-label">新对局</span>
+        </div>
+        <div class="lobby-action-btn">
+          <span class="btn-icon-w">🔗</span>
+          <span class="btn-label">加入对局</span>
+        </div>
+        <div class="lobby-action-btn">
+          <span class="btn-icon-w">🤖</span>
+          <span class="btn-label">人机对弈</span>
+        </div>
+        <div class="lobby-action-btn" @click="currentTab='review'">
+          <span class="btn-icon-w">📖</span>
+          <span class="btn-label">棋局复盘</span>
+        </div>
+        <div class="lobby-action-btn" @click="currentTab='settings'">
+          <span class="btn-icon-w">⚙</span>
+          <span class="btn-label">系统设置</span>
+        </div>
+      </div>
+
+      <div class="lobby-links">
+        <div class="lobby-link-item" @click="showLeaderboard=true">🏆 排行榜</div>
+        <div class="lobby-link-item" @click="showHistory=true">📋 历史记录</div>
+      </div>
+
+      <!-- ===== 排行榜弹窗（全屏铺满） ===== -->
+      <transition name="overlay">
+      <div v-if="showLeaderboard" class="lobby-overlay">
+        <div class="overlay-header">
+          <span class="overlay-title">🏆 排行榜</span>
+          <button class="overlay-close" @click="showLeaderboard=false">✕</button>
+        </div>
+        <div class="overlay-body">
+          <div v-for="(r,i) in rankData" :key="i" class="popup-rank-item">
+            <span class="popup-rank" :class="{'gold':i===0,'silver':i===1,'bronze':i===2}">{{ i+1 }}</span>
+            <span class="popup-rank-name">{{ r.name }}</span>
+            <span class="popup-rank-info">{{ r.level }}</span>
+            <span class="popup-rank-score">{{ r.score }}分</span>
+          </div>
+        </div>
+      </div>
+      </transition>
+
+      <!-- ===== 历史记录弹窗（全屏铺满） ===== -->
+      <transition name="overlay">
+      <div v-if="showHistory" class="lobby-overlay">
+        <div class="overlay-header">
+          <span class="overlay-title">📋 历史对局</span>
+          <button class="overlay-close" @click="showHistory=false">✕</button>
+        </div>
+        <div class="overlay-body">
+          <div v-for="(h,i) in historyData" :key="i" class="popup-history-item">
+            <span class="popup-result" :class="h.result">{{ h.resultLabel }}</span>
+            <span style="flex:1;font-size:13px;color:var(--color-text-primary)">{{ h.opponent }}</span>
+            <span style="font-size:12px;color:var(--color-text-tertiary)">{{ h.date }}</span>
+          </div>
+        </div>
+      </div>
+      </transition>
+    </div>
+
+    <!-- ========== 对局页 ========== -->
+    <div v-if="currentTab === 'game'" class="game-page">
+      <div class="game-topbar">
+        <img src="assets/svg/ui/text-logo.svg" class="game-title-img" alt="楚漢爭鋒">
+        <div class="game-info">
+          <span>房间 #8842</span>
+          <span>回合 {{ gameState.moveCount }}</span>
+          <div class="turn-indicator" :class="gameState.turn === 'red' ? 'turn-red' : 'turn-black'">
+            <span style="width:10px;height:10px;border-radius:50%;display:inline-block" :style="{background:gameState.turn==='red'?'#C53030':'#2D3748'}"></span>
+            {{ gameState.turn === 'red' ? '红方走棋' : '黑方走棋' }}
+          </div>
+        </div>
+      </div>
+
+      <div class="game-main">
+        <div class="game-center">
+          <!-- 对手 -->
+          <div class="game-opponent">
+            <div class="ava">李</div>
+            <div class="opp-info">
+              <div class="opp-name">李四海</div>
+              <div class="opp-level">业余八段</div>
+            </div>
+            <div class="opp-timer" :class="{ 'opp-timer--warn': blackTime < 30 }">{{ fmtTime(blackTime) }}</div>
+          </div>
+
+          <!-- 棋盘 — JS 动态计算缩放尺寸 -->
+          <div class="game-board-area" ref="boardArea">
+            <div class="board-frame" :style="{width:boardDisplayW+'px', height:boardDisplayH+'px'}">
+              <img src="assets/svg/board.svg" class="board-bg" alt="棋盘">
+              <div
+                v-for="piece in gamePieces" :key="piece.id"
+                class="piece-el"
+                :class="{ sel: selectedPiece?.id === piece.id }"
+                :style="{ left: piece.x+'px', top: piece.y+'px', width: piece.ds+'px', height: piece.ds+'px' }"
+                @click="selectPiece(piece)"
+              >
+                <img :src="'assets/svg/pieces/' + piece.svg" :alt="piece.label">
+              </div>
+            </div>
+          </div>
+
+          <!-- 操作按钮 — PC/移动端统一放置棋盘正下方 -->
+          <div class="game-actions-inline">
+            <button class="btn btn-secondary">求和</button>
+            <button class="btn btn-secondary">认输</button>
+            <button class="btn btn-secondary">悔棋</button>
+            <button class="btn btn-text" @click="currentTab='lobby'">退出</button>
+          </div>
+
+          <!-- 我方 -->
+          <div class="game-player">
+            <div class="ava">张</div>
+            <div class="opp-info">
+              <div class="opp-name">张三丰</div>
+              <div class="opp-level">业余九段</div>
+            </div>
+            <div class="opp-timer" :class="{ 'opp-timer--warn': redTime < 30 }">{{ fmtTime(redTime) }}</div>
+          </div>
+
+          <!-- 移动端底部面板切换栏（仅着法记录） -->
+          <div class="mobile-toggle-bar">
+            <button class="mobile-toggle-btn" :class="{active:mobilePanel==='moves'}" @click="mobilePanel=mobilePanel==='moves'?'':'moves'">
+              📜 着法记录
+            </button>
+          </div>
+        </div>
+
+        <!-- 桌面端着法侧栏 -->
+        <div class="game-sidebar">
+          <div class="sidebar-header">着法记录 <span style="font-weight:400;font-size:12px;color:var(--color-text-tertiary);margin-left:auto">23 手</span></div>
+          <div class="move-list">
+            <div v-for="m in gameMoves" :key="m.idx" class="move-item" :class="{ active: m.idx === currentMove }" @click="currentMove=m.idx">
+              <span class="move-num">{{ m.idx }}.</span>
+              <span class="move-red">{{ m.red }}</span>
+              <span class="move-black" v-if="m.black">{{ m.black }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 移动端底部可折叠面板：着法记录（点击空白处可关闭） -->
+      <div class="mobile-panel-overlay" :class="{open:mobilePanel==='moves'}" @click.self="mobilePanel=''">
+        <div class="mobile-panel-sheet" :class="{open:mobilePanel==='moves'}">
+          <div class="mobile-panel-handle"></div>
+          <div class="mobile-panel-header">
+            <span>着法记录 · 23 手</span>
+            <button class="popup-close" @click="mobilePanel=''">✕</button>
+          </div>
+          <div class="mobile-panel-body">
+            <div v-for="m in gameMoves" :key="'m'+m.idx" class="move-item" :class="{ active: m.idx === currentMove }" @click="currentMove=m.idx">
+              <span class="move-num">{{ m.idx }}.</span>
+              <span class="move-red">{{ m.red }}</span>
+              <span class="move-black" v-if="m.black">{{ m.black }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 复盘页 ========== -->
+    <div v-if="currentTab === 'review'" class="review-page">
+      <div class="review-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn btn-text" @click="currentTab='lobby'">← 返回</button>
+          <div class="review-title">棋局复盘</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn--sm">📥 导入棋谱</button>
+        </div>
+      </div>
+
+      <div class="review-main">
+        <div class="review-board-area" ref="reviewBoardArea">
+          <!-- 复盘棋盘 — JS 动态缩放 -->
+          <div class="board-frame" :style="{width:reviewBoardDisplayW+'px', height:reviewBoardDisplayH+'px', flexShrink:'0'}">
+            <img src="assets/svg/board.svg" class="board-bg" alt="棋盘">
+            <div
+              v-for="piece in reviewPieces" :key="piece.id"
+              class="piece-el"
+              :style="{ left: piece.x + 'px', top: piece.y + 'px', width: piece.ds+'px', height: piece.ds+'px' }"
+            >
+              <img :src="'assets/svg/pieces/' + piece.svg" :alt="piece.label">
+            </div>
+          </div>
+
+          <!-- 播放控制 -->
+          <div class="playback-controls">
+            <button class="pb-btn" @click="reviewStep = Math.max(0, reviewStep-1)">⏮</button>
+            <button class="pb-btn pb-btn--play" @click="reviewPlaying=!reviewPlaying">
+              {{ reviewPlaying ? '⏸' : '▶' }}
+            </button>
+            <button class="pb-btn" @click="reviewStep = Math.min(reviewTotal, reviewStep+1)">⏭</button>
+            <div class="playback-progress">
+              <div class="progress-bar" @click="seekReview($event)">
+                <div class="progress-fill" :style="{width: (reviewStep/reviewTotal*100)+'%'}"></div>
+              </div>
+              <div class="progress-label"><span>{{ reviewStep }}</span><span>{{ reviewTotal }}</span></div>
+            </div>
+            <div class="speed-options">
+              <button class="speed-btn" :class="{active:speed===0.5}" @click="speed=0.5">0.5x</button>
+              <button class="speed-btn active" @click="speed=1">1x</button>
+              <button class="speed-btn" :class="{active:speed===2}" @click="speed=2">2x</button>
+            </div>
+          </div>
+
+          <!-- 切换按钮行：着法记录 | 对局信息（PC/移动端统一） -->
+          <div class="review-toggle-bar">
+            <button class="toggle-item" :class="{active:reviewPopup==='moves'}" @click="reviewPopup=reviewPopup==='moves'?'':'moves'">
+              📜 着法记录
+            </button>
+            <button class="toggle-item" :class="{active:reviewPopup==='info'}" @click="reviewPopup=reviewPopup==='info'?'':'info'">
+              📊 对局信息
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 复盘弹出面板：着法记录 -->
+      <transition name="overlay">
+      <div v-if="reviewPopup==='moves'" class="review-overlay" @click.self="reviewPopup=''">
+        <div class="review-popup">
+          <div class="popup-header">
+            <span class="popup-title">着法记录</span>
+            <button class="popup-close" @click="reviewPopup=''">✕</button>
+          </div>
+          <div class="popup-body">
+            <div v-for="m in reviewMoves" :key="'rm'+m.idx" class="move-item" :class="{ active: m.idx === reviewStep }" @click="reviewStep=m.idx">
+              <span class="move-num">{{ m.idx }}.</span>
+              <span class="move-red">{{ m.red }}</span>
+              <span class="move-black" v-if="m.black">{{ m.black }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </transition>
+
+      <!-- 复盘弹出面板：对局信息 -->
+      <transition name="overlay">
+      <div v-if="reviewPopup==='info'" class="review-overlay" @click.self="reviewPopup=''">
+        <div class="review-popup">
+          <div class="popup-header">
+            <span class="popup-title">对局信息</span>
+            <button class="popup-close" @click="reviewPopup=''">✕</button>
+          </div>
+          <div class="popup-body">
+            <div class="info-row" style="display:flex;justify-content:space-between;padding:10px 0;font-size:13px;border-bottom:1px solid var(--color-bg-secondary)"><span style="color:var(--color-text-tertiary)">对局时间</span><span style="font-weight:500">2026-06-11 15:30</span></div>
+            <div class="info-row" style="display:flex;justify-content:space-between;padding:10px 0;font-size:13px;border-bottom:1px solid var(--color-bg-secondary)"><span style="color:var(--color-text-tertiary)">红方</span><span style="font-weight:500;color:#C53030">张三丰（业余九段）</span></div>
+            <div class="info-row" style="display:flex;justify-content:space-between;padding:10px 0;font-size:13px;border-bottom:1px solid var(--color-bg-secondary)"><span style="color:var(--color-text-tertiary)">黑方</span><span style="font-weight:500;color:#2D3748">李四海（业余八段）</span></div>
+            <div class="info-row" style="display:flex;justify-content:space-between;padding:10px 0;font-size:13px;border-bottom:1px solid var(--color-bg-secondary)"><span style="color:var(--color-text-tertiary)">结果</span><span style="font-weight:500;color:#059669">红方胜</span></div>
+            <div class="info-row" style="display:flex;justify-content:space-between;padding:10px 0;font-size:13px"><span style="color:var(--color-text-tertiary)">着法</span><span style="font-weight:500">47 手</span></div>
+          </div>
+        </div>
+      </div>
+      </transition>
+    </div>
+
+    <!-- ========== 设置页 ========== -->
+    <div v-if="currentTab === 'settings'" class="settings-page">
+      <div class="settings-header">
+        <button class="btn btn-text" @click="currentTab='lobby'">← 返回</button>
+        <div class="settings-section-title" style="margin:0">系统设置</div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">对局设置</div>
+        <div class="settings-group">
+          <div class="settings-item">
+            <div><div class="item-label">音效</div><div class="item-desc">落子音效和提示音</div></div>
+            <span class="item-value">开启</span>
+          </div>
+          <div class="settings-item">
+            <div><div class="item-label">棋盘主题</div><div class="item-desc">切换棋盘视觉效果</div></div>
+            <span class="item-value">传统木质</span>
+          </div>
+          <div class="settings-item">
+            <div><div class="item-label">走棋确认</div><div class="item-desc">落子前二次确认</div></div>
+            <span class="item-value">关闭</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">账号</div>
+        <div class="settings-group">
+          <div class="settings-item">
+            <div><div class="item-label">昵称</div><div class="item-desc">在游戏中显示的名称</div></div>
+            <span class="item-value">张三丰</span>
+          </div>
+          <div class="settings-item">
+            <div><div class="item-label">修改密码</div><div class="item-desc">更改登录密码</div></div>
+            <span class="item-value">›</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">关于</div>
+        <div class="settings-group">
+          <div class="settings-item"><div><div class="item-label">版本</div></div><span class="item-value">v1.0.0</span></div>
+          <div class="settings-item"><div><div class="item-label">开发者</div></div><span class="item-value">楚漢爭鋒工作室</span></div>
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-top:32px">
+        <button class="btn btn-danger" style="min-width:200px">退出登录</button>
+        <div class="settings-about">
+          <img src="assets/svg/ui/text-logo.svg" class="about-logo-img" alt="楚漢爭鋒">
+          <div>v1.0.0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } = Vue
+
+createApp({
+  setup() {
+    const currentTab = ref('login')
+    const tabs = [
+      { id: 'login',    label: '🔑 登录' },
+      { id: 'lobby',    label: '🏠 大厅' },
+      { id: 'game',     label: '⚔ 对局' },
+      { id: 'review',   label: '📖 复盘' },
+      { id: 'settings', label: '⚙ 设置' },
+    ]
+
+    /* 登录 */
+    const loginForm = reactive({ username: '', password: '' })
+
+    /* 大厅弹窗 */
+    const showLeaderboard = ref(false)
+    const showHistory = ref(false)
+    const rankData = [
+      { name:'王天元', level:'特级大师', score:2847 },
+      { name:'赵弈秋', level:'特级大师', score:2793 },
+      { name:'孙棋圣', level:'特级大师', score:2756 },
+      { name:'张三丰', level:'业余九段', score:2688 },
+      { name:'李四海', level:'业余八段', score:2543 },
+      { name:'周小星', level:'业余七段', score:2401 },
+      { name:'吴布衣', level:'业余六级', score:2298 },
+    ]
+    const historyData = [
+      { opponent:'李四海', result:'win', resultLabel:'胜', date:'2026-06-11 15:30' },
+      { opponent:'王天元', result:'lose', resultLabel:'负', date:'2026-06-10 20:15' },
+      { opponent:'赵弈秋', result:'draw', resultLabel:'和', date:'2026-06-09 14:00' },
+      { opponent:'孙棋圣', result:'lose', resultLabel:'负', date:'2026-06-08 10:30' },
+      { opponent:'周小星', result:'win', resultLabel:'胜', date:'2026-06-07 16:45' },
+      { opponent:'吴布衣', result:'win', resultLabel:'胜', date:'2026-06-06 19:00' },
+    ]
+
+    /* 对局 */
+    const redTime = ref(838)
+    const blackTime = ref(845)
+    const selectedPiece = ref(null)
+    const currentMove = ref(23)
+    const gameState = reactive({ turn: 'red', moveCount: 23 })
+    const mobilePanel = ref('')
+
+    /* 复盘弹出面板 */
+    const reviewPopup = ref('')
+
+    /* ===== 棋盘自适应缩放 — 对局 ===== */
+    const boardArea = ref(null)         // template ref
+    const boardScale = ref(1)
+    const boardDisplayW = ref(540)
+    const boardDisplayH = ref(600)
+
+    /* ===== 棋盘自适应缩放 — 复盘 ===== */
+    const reviewBoardArea = ref(null)
+    const reviewBoardScale = ref(1)
+    const reviewBoardDisplayW = ref(540)
+    const reviewBoardDisplayH = ref(600)
+
+    /* 原生参数 */
+    const NATIVE_W = 540, NATIVE_H = 600
+    const CELL_N = 60, PAD_N = 30, PSIZE_N = 48, POFF_N = 24
+    /* 最小尺寸（低于此显示滚动条） */
+    const MIN_W = 300, MIN_H = 333
+
+    /* 通用：根据可用空间计算缩放比及显示尺寸 */
+    const calcBoardScale = (area, scaleRef, dispW, dispH) => {
+      if (!area) return
+      const availW = area.clientWidth - 48   /* 24px padding * 2 */
+      const availH = area.clientHeight - 48
+      if (availW <= 0 || availH <= 0) return
+
+      let sw = availW / NATIVE_W
+      let sh = availH / NATIVE_H
+      let s = Math.min(sw, sh)
+
+      /* 不超过原始尺寸 */
+      s = Math.min(s, 1)
+      /* 不小于最小尺寸 */
+      if (NATIVE_W * s < MIN_W) s = MIN_W / NATIVE_W
+      if (NATIVE_H * s < MIN_H) s = Math.max(s, MIN_H / NATIVE_H)
+
+      scaleRef.value = s
+      dispW.value = Math.round(NATIVE_W * s)
+      dispH.value = Math.round(NATIVE_H * s)
+    }
+
+    /* 对局棋盘缩放 */
+    const updateBoardScale = () => calcBoardScale(boardArea.value, boardScale, boardDisplayW, boardDisplayH)
+    /* 复盘棋盘缩放 */
+    const updateReviewBoardScale = () => calcBoardScale(reviewBoardArea.value, reviewBoardScale, reviewBoardDisplayW, reviewBoardDisplayH)
+
+    /* 监听 tab 切换 — 动态注册 / 销毁 ResizeObserver（因对局/复盘页由 v-if 延迟渲染） */
+    let gameRO = null, reviewRO = null
+    watch(currentTab, (tab, oldTab) => {
+      /* 离开旧 tab → 断开 observer */
+      if (oldTab === 'game' && gameRO) { gameRO.disconnect(); gameRO = null }
+      if (oldTab === 'review' && reviewRO) { reviewRO.disconnect(); reviewRO = null }
+      /* 进入新 tab → nextTick 后注册 observer */
+      nextTick(() => {
+        if (tab === 'game' && boardArea.value && !gameRO) {
+          updateBoardScale()
+          gameRO = new ResizeObserver(() => updateBoardScale())
+          gameRO.observe(boardArea.value)
+        }
+        if (tab === 'review' && reviewBoardArea.value && !reviewRO) {
+          updateReviewBoardScale()
+          reviewRO = new ResizeObserver(() => updateReviewBoardScale())
+          reviewRO.observe(reviewBoardArea.value)
+        }
+      })
+    })
+    onUnmounted(() => {
+      if (gameRO) gameRO.disconnect()
+      if (reviewRO) reviewRO.disconnect()
+    })
+
+    /* 棋子网格原始数据（col 0–8, row 0–9） */
+    const rawPieces = [
+      /* 黑方 (row 0-3) */
+      { id:'br0', col:0, row:0, svg:'black-ju.svg',    label:'車', side:'black' },
+      { id:'br1', col:1, row:0, svg:'black-ma.svg',    label:'馬', side:'black' },
+      { id:'br2', col:2, row:0, svg:'black-xiang.svg', label:'象', side:'black' },
+      { id:'br3', col:3, row:0, svg:'black-shi.svg',   label:'士', side:'black' },
+      { id:'br4', col:4, row:0, svg:'black-jiang.svg', label:'將', side:'black' },
+      { id:'br5', col:5, row:0, svg:'black-shi.svg',   label:'士', side:'black' },
+      { id:'br6', col:6, row:0, svg:'black-xiang.svg', label:'象', side:'black' },
+      { id:'br7', col:7, row:0, svg:'black-ma.svg',    label:'馬', side:'black' },
+      { id:'br8', col:8, row:0, svg:'black-ju.svg',    label:'車', side:'black' },
+      { id:'bp1', col:1, row:2, svg:'black-pao.svg',   label:'砲', side:'black' },
+      { id:'bp2', col:7, row:2, svg:'black-pao.svg',   label:'砲', side:'black' },
+      { id:'bz0', col:0, row:3, svg:'black-zu.svg',    label:'卒', side:'black' },
+      { id:'bz1', col:2, row:3, svg:'black-zu.svg',    label:'卒', side:'black' },
+      { id:'bz2', col:4, row:3, svg:'black-zu.svg',    label:'卒', side:'black' },
+      { id:'bz3', col:6, row:3, svg:'black-zu.svg',    label:'卒', side:'black' },
+      { id:'bz4', col:8, row:3, svg:'black-zu.svg',    label:'卒', side:'black' },
+      /* 红方 (row 6-9) */
+      { id:'rr0', col:0, row:9, svg:'red-ju.svg',    label:'車', side:'red' },
+      { id:'rr1', col:1, row:9, svg:'red-ma.svg',    label:'馬', side:'red' },
+      { id:'rr2', col:2, row:9, svg:'red-xiang.svg', label:'相', side:'red' },
+      { id:'rr3', col:3, row:9, svg:'red-shi.svg',   label:'仕', side:'red' },
+      { id:'rr4', col:4, row:9, svg:'red-shuai.svg', label:'帥', side:'red' },
+      { id:'rr5', col:5, row:9, svg:'red-shi.svg',   label:'仕', side:'red' },
+      { id:'rr6', col:6, row:9, svg:'red-xiang.svg', label:'相', side:'red' },
+      { id:'rr7', col:7, row:9, svg:'red-ma.svg',    label:'馬', side:'red' },
+      { id:'rr8', col:8, row:9, svg:'red-ju.svg',    label:'車', side:'red' },
+      { id:'rp1', col:1, row:7, svg:'red-pao.svg',   label:'炮', side:'red' },
+      { id:'rp2', col:7, row:7, svg:'red-pao.svg',   label:'炮', side:'red' },
+      { id:'rb0', col:0, row:6, svg:'red-bing.svg',  label:'兵', side:'red' },
+      { id:'rb1', col:2, row:6, svg:'red-bing.svg',  label:'兵', side:'red' },
+      { id:'rb2', col:4, row:6, svg:'red-bing.svg',  label:'兵', side:'red' },
+      { id:'rb3', col:6, row:6, svg:'red-bing.svg',  label:'兵', side:'red' },
+      { id:'rb4', col:8, row:6, svg:'red-bing.svg',  label:'兵', side:'red' },
+    ]
+
+    /* 根据缩放比计算像素坐标 */
+    const gamePieces = computed(() => {
+      const s = boardScale.value
+      const cell = CELL_N * s
+      const pad = PAD_N * s
+      const poff = POFF_N * s
+      const psize = Math.round(PSIZE_N * s)
+      return rawPieces.map(p => ({
+        id: p.id, svg: p.svg, label: p.label, side: p.side,
+        x: Math.round(pad + p.col * cell - poff),
+        y: Math.round(pad + p.row * cell - poff),
+        ds: psize,
+      }))
+    })
+
+    const selectPiece = (p) => { selectedPiece.value = selectedPiece.value?.id === p.id ? null : p }
+    const fmtTime = (s) => { const m=Math.floor(s/60), sc=s%60; return `${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}` }
+
+    const gameMoves = [
+      { idx:1, red:'炮二平五', black:'马8进7' },{ idx:2, red:'马二进三', black:'车9平8' },
+      { idx:3, red:'车一平二', black:'卒7进1' },{ idx:4, red:'车二进六', black:'马2进3' },
+      { idx:5, red:'兵七进一', black:'炮8平9' },{ idx:6, red:'车二平三', black:'炮9退1' },
+      { idx:7, red:'马八进七', black:'士4进5' },{ idx:8, red:'马七进六', black:'炮2平1' },
+      { idx:9, red:'炮八平七', black:'车1平2' },{ idx:10, red:'兵七进一', black:'卒3进1' },
+      { idx:11, red:'炮七进五', black:'象7进5' },{ idx:12, red:'马三进四', black:'车8进5' },
+    ]
+
+    /* 复盘 */
+    const reviewStep = ref(10)
+    const reviewTotal = 47
+    const reviewPlaying = ref(false)
+    const speed = ref(1)
+    const reviewPieces = computed(() => {
+      const s = reviewBoardScale.value
+      const cell = CELL_N * s
+      const pad = PAD_N * s
+      const poff = POFF_N * s
+      const psize = Math.round(PSIZE_N * s)
+      return rawPieces.map(p => ({
+        id: p.id, svg: p.svg, label: p.label, side: p.side,
+        x: Math.round(pad + p.col * cell - poff),
+        y: Math.round(pad + p.row * cell - poff),
+        ds: psize,
+      }))
+    })
+    const reviewMoves = gameMoves
+
+    const seekReview = (e) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const pct = (e.clientX - rect.left) / rect.width
+      reviewStep.value = Math.round(pct * reviewTotal)
+    }
+
+    /* 计时器 */
+    const timer = setInterval(() => {
+      if (currentTab.value === 'game') {
+        if (gameState.turn === 'red') redTime.value = Math.max(0, redTime.value - 1)
+        else blackTime.value = Math.max(0, blackTime.value - 1)
+      }
+    }, 1000)
+    onUnmounted(() => clearInterval(timer))
+
+    return {
+      currentTab, tabs,
+      loginForm,
+      showLeaderboard, showHistory, rankData, historyData,
+      redTime, blackTime, selectedPiece, currentMove, gameState, gamePieces, gameMoves,
+      selectPiece, fmtTime,
+      reviewStep, reviewTotal, reviewPlaying, speed, reviewPieces, reviewMoves, seekReview,
+      mobilePanel,
+      reviewPopup,
+      boardArea, boardScale, boardDisplayW, boardDisplayH,
+      reviewBoardArea, reviewBoardScale, reviewBoardDisplayW, reviewBoardDisplayH,
+    }
+  }
+}).mount('#app')
+</script>
+</body>
+</html>

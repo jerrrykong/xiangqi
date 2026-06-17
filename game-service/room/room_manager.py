@@ -291,22 +291,57 @@ class RoomManager:
                     return
 
     async def _auto_rematch_bots(self, room: Room) -> None:
-        """Auto-rematch bot players when game ends."""
+        """Auto-rematch bot players when game ends — works for all room types."""
         if room.room_id not in self.rooms:
             return
+        if room.phase != RoomPhase.FINISHED:
+            return
+
+        # Step 1: 自动 rematch 所有拥有 PlayerSession 的 bot 玩家
         for player in [room.red_player, room.black_player]:
             if player and player.is_bot and player.user_id not in room.rematch_players:
                 logger.info(f"Auto-rematch bot: user_id={player.user_id} in room={room.room_id}")
-                # Notify human opponent
                 opponent = room.get_opponent(player.user_id)
                 if opponent and opponent.is_connected:
                     await opponent.send({
                         "type": "opponent_rematch",
                         "data": {"user_id": player.user_id},
                     })
-                result = await self.rematch(room, player.user_id)
-                if result == "started":
-                    return
+                room.rematch_players.add(player.user_id)
+
+        # Step 2: 判断是否满足开局条件
+        if room.room_type == RoomType.PVE:
+            # PvE: AI 方总是就绪，直接通知人类对手并开局
+            human = room.red_player if room.red_player else room.black_player
+            if human and human.is_connected:
+                await human.send({
+                    "type": "opponent_rematch",
+                    "data": {"user_id": 0},
+                })
+            logger.info(f"Auto-rematch: PvE game in room={room.room_id}")
+        else:
+            # PvP: 双方都必须已 rematch 才能开局
+            red_id = room.red_player.user_id if room.red_player else None
+            black_id = room.black_player.user_id if room.black_player else None
+            if not (red_id and black_id
+                    and red_id in room.rematch_players
+                    and black_id in room.rematch_players):
+                return
+
+        # Step 3: 开局（统一逻辑）
+        logger.info(f"Auto-rematch: starting new game in room={room.room_id}")
+        room.swap_colors()
+        room.init_game()
+        try:
+            if room.red_player:
+                await self.room_repo.join_room(room.room_id, room.red_player.user_id, "red")
+            if room.black_player:
+                await self.room_repo.join_room(room.room_id, room.black_player.user_id, "black")
+            await self.room_repo.start_game(room.room_id)
+        except Exception as e:
+            logger.warning(f"Failed to persist auto-rematch: {e}")
+        task = asyncio.create_task(self._run_room(room))
+        self.tasks[room.room_id] = task
 
     # ---- Leave Room ----
 
