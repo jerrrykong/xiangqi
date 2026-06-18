@@ -278,35 +278,33 @@ function getResultClass(result: string): string {
 
     <!-- PvE 难度选择弹窗 -->
     <Transition name="overlay">
-      <div v-if="showPvEDialog" class="review-overlay" @click.self="showPvEDialog = false">
-        <div class="review-popup">
-          <div class="overlay-header">
-            <h3 class="overlay-title">
-              <img :src="baseUrl + 'assets/svg/ui/icon-ai.svg'" alt="" class="title-icon" />
-              人机对战
-            </h3>
-            <button class="overlay-close" @click="showPvEDialog = false">
-              <img :src="baseUrl + 'assets/svg/ui/icon-close.svg'" alt="关闭" />
+      <div v-if="showPvEDialog" class="lobby-overlay" @click.self="showPvEDialog = false">
+        <div class="overlay-header">
+          <h3 class="overlay-title">
+            <img :src="baseUrl + 'assets/svg/ui/icon-ai.svg'" alt="" class="title-icon" />
+            人机对战
+          </h3>
+          <button class="overlay-close" @click="showPvEDialog = false">
+            <img :src="baseUrl + 'assets/svg/ui/icon-close.svg'" alt="关闭" />
+          </button>
+        </div>
+        <div class="overlay-body">
+          <p class="form-label">选择AI难度</p>
+          <div class="difficulty-options">
+            <button
+              v-for="d in 5"
+              :key="d"
+              class="difficulty-btn"
+              :class="{ active: selectedDifficulty === d }"
+              @click="selectedDifficulty = d"
+            >
+              {{ ['', '简单', '中等', '困难', '大师', '宗师'][d] }}
             </button>
           </div>
-          <div class="overlay-body">
-            <p class="form-label">选择AI难度</p>
-            <div class="difficulty-options">
-              <button
-                v-for="d in 5"
-                :key="d"
-                class="difficulty-btn"
-                :class="{ active: selectedDifficulty === d }"
-                @click="selectedDifficulty = d"
-              >
-                {{ ['', '简单', '中等', '困难', '大师', '宗师'][d] }}
-              </button>
-            </div>
-          </div>
-          <div class="overlay-footer">
-            <button class="btn btn-secondary" @click="showPvEDialog = false">取消</button>
-            <button class="btn btn-primary" @click="handleCreatePvERoom">开始对局</button>
-          </div>
+        </div>
+        <div class="overlay-footer">
+          <button class="btn btn-secondary" @click="showPvEDialog = false">取消</button>
+          <button class="btn btn-primary" @click="handleCreatePvERoom">开始对局</button>
         </div>
       </div>
     </Transition>
