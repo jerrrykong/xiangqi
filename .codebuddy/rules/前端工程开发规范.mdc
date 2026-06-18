@@ -1,0 +1,9 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-06-18T15:35:28.236Z
+provider: 
+---
+
+**非常重要：** 在进行前端工程的修改和新功能开发前，必须阅读和遵守前端开发规范：docs/07-frontend-dev-spec.md
