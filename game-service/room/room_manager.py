@@ -20,6 +20,7 @@ from ai.ai_proxy import AIProxy
 from room.room import Room, RoomPhase, RoomSource, RoomType
 from room.player_session import PlayerSession
 from room.timers import MoveTimer
+from room.runner import RoomRunner
 from user.elo_repository import EloRepository
 from room.room_repository import RoomRepository, GameRepository
 from user.user_service import UserService
@@ -35,7 +36,11 @@ class RoomManager:
 
     def __init__(self, room_repo: RoomRepository, game_repo: GameRepository,
                  elo_repo: EloRepository, user_service: UserService,
-                 disconnect_timeout: int = 300):
+                 disconnect_timeout: int = 300,
+                 persist_every_n_moves: int = 5,
+                 ai_ready_delay: float = 0.25,
+                 ai_rematch_delay: float = 0.5,
+                 rematch_timeout: float = 60.0):
         self.rooms: Dict[str, Room] = {}
         self.user_rooms: Dict[int, str] = {}
         self.tasks: Dict[str, asyncio.Task] = {}
@@ -45,6 +50,12 @@ class RoomManager:
         self.elo_repo = elo_repo
         self.user_service = user_service
         self.disconnect_timeout = disconnect_timeout
+        # Persistence and AI timing configuration
+        self.persist_every_n_moves = max(1, int(persist_every_n_moves))
+        self.ai_ready_delay = float(ai_ready_delay)
+        self.ai_rematch_delay = float(ai_rematch_delay)
+        # How long to wait in FINISHED state for rematch before rolling back
+        self.rematch_timeout = float(rematch_timeout)
         self._disconnect_checker_task: Optional[asyncio.Task] = None
 
     # ---- Room Creation ----
@@ -114,8 +125,8 @@ class RoomManager:
         except Exception as e:
             logger.warning(f"Failed to persist match room: {e}")
 
-        # Start room coroutine
-        task = asyncio.create_task(self._run_room(room))
+        # Start room runner coroutine
+        task = asyncio.create_task(RoomRunner(self, room).run())
         self.tasks[room_id] = task
 
         return room
@@ -159,7 +170,7 @@ class RoomManager:
         except Exception as e:
             logger.warning(f"Failed to persist PvE room: {e}")
 
-        task = asyncio.create_task(self._run_room(room))
+        task = asyncio.create_task(RoomRunner(self, room).run())
         self.tasks[room_id] = task
 
         return room
@@ -215,7 +226,7 @@ class RoomManager:
         red_id = room.red_player.user_id if room.red_player else None
         black_id = room.black_player.user_id if room.black_player else None
 
-        if red_id and black_id and red_id in room.ready_players and black_id in room.ready_players:
+        if red_id is not None and black_id is not None and red_id in room.ready_players and black_id in room.ready_players:
             # Both ready - start the game
             room.init_game()
 
@@ -225,10 +236,8 @@ class RoomManager:
             except Exception as e:
                 logger.warning(f"Failed to persist game start: {e}")
 
-            # Start room coroutine
-            task = asyncio.create_task(self._run_room(room))
-            self.tasks[room.room_id] = task
-
+            # RoomRunner (already running) will detect phase change to PLAYING and
+            # call into _run_room to drive the game. Persisted DB state above is sufficient.
             return "started"
 
         return "accepted"
@@ -251,7 +260,7 @@ class RoomManager:
         red_id = room.red_player.user_id if room.red_player else None
         black_id = room.black_player.user_id if room.black_player else None
 
-        if red_id and black_id and red_id in room.rematch_players and black_id in room.rematch_players:
+        if red_id is not None and black_id is not None and red_id in room.rematch_players and black_id in room.rematch_players:
             # Both want rematch - swap colors and start new game
             room.swap_colors()
             room.init_game()
@@ -264,8 +273,8 @@ class RoomManager:
             except Exception as e:
                 logger.warning(f"Failed to persist rematch: {e}")
 
-            # Start room coroutine
-            task = asyncio.create_task(self._run_room(room))
+            # Start room runner coroutine
+            task = asyncio.create_task(RoomRunner(self, room).run())
             self.tasks[room.room_id] = task
 
             return "started"
@@ -279,6 +288,11 @@ class RoomManager:
         for player in [room.red_player, room.black_player]:
             if player and player.is_bot and player.user_id not in room.ready_players:
                 logger.info(f"Auto-ready bot: user_id={player.user_id} in room={room.room_id}")
+                # Short delay for AI ready UX
+                try:
+                    await asyncio.sleep(self.ai_ready_delay)
+                except asyncio.CancelledError:
+                    return
                 # Notify human opponent
                 opponent = room.get_opponent(player.user_id)
                 if opponent and opponent.is_connected:
@@ -301,6 +315,11 @@ class RoomManager:
         for player in [room.red_player, room.black_player]:
             if player and player.is_bot and player.user_id not in room.rematch_players:
                 logger.info(f"Auto-rematch bot: user_id={player.user_id} in room={room.room_id}")
+                # Short delay before bot rematch to avoid immediate restart
+                try:
+                    await asyncio.sleep(self.ai_rematch_delay)
+                except asyncio.CancelledError:
+                    return
                 opponent = room.get_opponent(player.user_id)
                 if opponent and opponent.is_connected:
                     await opponent.send({
@@ -311,19 +330,27 @@ class RoomManager:
 
         # Step 2: 判断是否满足开局条件
         if room.room_type == RoomType.PVE:
-            # PvE: AI 方总是就绪，直接通知人类对手并开局
-            human = room.red_player if room.red_player else room.black_player
+            # PvE: AI will auto-add itself to rematch_players and notify the human opponent.
+            # Do NOT auto-start a new game here — the human must explicitly request rematch.
+            human = room.red_player if room.red_player and not room.red_player.is_bot else room.black_player
+            bot = room.red_player if room.red_player and room.red_player.is_bot else room.black_player
             if human and human.is_connected:
                 await human.send({
                     "type": "opponent_rematch",
-                    "data": {"user_id": 0},
+                    "data": {"user_id": bot.user_id if bot else 0},
                 })
-            logger.info(f"Auto-rematch: PvE game in room={room.room_id}")
+            logger.info(f"Auto-rematch: PvE bot notified in room={room.room_id}")
+            # Only start when both human and bot are recorded in rematch_players
+            human_id = human.user_id if human else None
+            bot_id = bot.user_id if bot else None
+            if not (human_id is not None and bot_id is not None and
+                    human_id in room.rematch_players and bot_id in room.rematch_players):
+                return
         else:
             # PvP: 双方都必须已 rematch 才能开局
             red_id = room.red_player.user_id if room.red_player else None
             black_id = room.black_player.user_id if room.black_player else None
-            if not (red_id and black_id
+            if not (red_id is not None and black_id is not None
                     and red_id in room.rematch_players
                     and black_id in room.rematch_players):
                 return
@@ -340,8 +367,8 @@ class RoomManager:
             await self.room_repo.start_game(room.room_id)
         except Exception as e:
             logger.warning(f"Failed to persist auto-rematch: {e}")
-        task = asyncio.create_task(self._run_room(room))
-        self.tasks[room.room_id] = task
+        # Don't start a new runner here — the active RoomRunner will observe the
+        # phase change and resume driving the PLAYING state.
 
     # ---- Leave Room ----
 
@@ -548,7 +575,14 @@ class RoomManager:
         if room.game_state.is_game_over:
             await self._handle_game_over(room, self._get_game_over_reason(room))
         else:
-            await self._persist_room_state(room)
+            # Persist every N moves to reduce IO. N is configurable.
+            try:
+                moves_count = room.game_state.move_count if room.game_state else 0
+                if moves_count % self.persist_every_n_moves == 0:
+                    await self._persist_room_state(room)
+            except Exception:
+                # Fallback to best-effort persist
+                await self._persist_room_state(room)
 
     async def _apply_and_broadcast_move(self, room: Room, move: Move,
                                         msg_type: str) -> None:
@@ -606,8 +640,13 @@ class RoomManager:
         if room.game_state.is_game_over:
             await self._handle_game_over(room, self._get_game_over_reason(room))
         else:
-            # Persist game state after each move for server restart recovery
-            await self._persist_room_state(room)
+            # Persist periodically (every N moves) to reduce IO.
+            try:
+                moves_count = room.game_state.move_count if room.game_state else 0
+                if moves_count % self.persist_every_n_moves == 0:
+                    await self._persist_room_state(room)
+            except Exception:
+                await self._persist_room_state(room)
 
     # ---- Game Over ----
 
@@ -959,6 +998,45 @@ class RoomManager:
         self._disconnect_checker_task = None
         logger.info("Disconnect checker stopped")
 
+    async def stop_all_rooms(self) -> None:
+        """Cancel and wait for all active RoomRunner tasks to finish.
+
+        This is used during application shutdown to ensure no room tasks
+        are left running which would prevent the event loop from closing.
+        """
+        if not self.tasks:
+            return
+
+        logger.info(f"Stopping all room runners ({len(self.tasks)})...")
+        # Cancel tasks
+        for room_id, task in list(self.tasks.items()):
+            try:
+                if task and not task.done():
+                    task.cancel()
+            except Exception:
+                pass
+
+        # Wake up room waiters (move_event) to unblock _run_room loops
+        for room in list(self.rooms.values()):
+            try:
+                if hasattr(room, 'move_event') and room.move_event:
+                    room.move_event.set()
+            except Exception:
+                pass
+
+        # Await tasks with a short timeout to avoid blocking shutdown
+        for room_id, task in list(self.tasks.items()):
+            try:
+                await asyncio.wait_for(task, timeout=5.0)
+            except asyncio.CancelledError:
+                # expected
+                pass
+            except Exception as e:
+                logger.warning(f"Error while waiting for room task {room_id}: {e}")
+
+        self.tasks.clear()
+        logger.info("All room runners stopped")
+
     async def _disconnect_checker_loop(self) -> None:
         """Periodically check for disconnected players whose timeout has expired."""
         try:
@@ -1075,7 +1153,7 @@ class RoomManager:
                 red_id = row.get("red_user_id")
                 black_id = row.get("black_user_id")
 
-                if red_id:
+                if red_id is not None:
                     red_player = PlayerSession(
                         user_id=red_id,
                         username=row.get("red_username", "") or f"user_{red_id}",
@@ -1088,7 +1166,7 @@ class RoomManager:
                     room.red_player = red_player
                     self.user_rooms[red_id] = room_id
 
-                if black_id:
+                if black_id is not None:
                     black_player = PlayerSession(
                         user_id=black_id,
                         username=row.get("black_username", "") or f"user_{black_id}",
@@ -1143,8 +1221,8 @@ class RoomManager:
                         else:
                             room.ai_side = Color.BLACK
 
-                    # Start room coroutine (will wait for players to reconnect)
-                    task = asyncio.create_task(self._run_room(room))
+                    # Start room runner coroutine (will wait for players to reconnect)
+                    task = asyncio.create_task(RoomRunner(self, room).run())
                     self.tasks[room_id] = task
 
                 self.rooms[room_id] = room

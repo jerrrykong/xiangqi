@@ -389,6 +389,8 @@ class Difficulty(IntEnum):
 │   ├── draw_answered      和棋应答
 │   ├── opponent_left      对手断线
 │   ├── opponent_rejoin    对手重连
+│   ├── opponent_ready     对手已准备（READY 阶段，含 user_id）
+│   ├── opponent_rematch   对手发起续局（FINISHED 阶段，含 user_id）
 │   └── state_sync         状态同步（断线重连后）
 ├── 匹配
 │   ├── match_queued       已加入队列
@@ -604,6 +606,18 @@ class Difficulty(IntEnum):
 **game_move — 玩家落子**
 ```json
 { "type": "game_move", "data": { "from": "e10", "to": "e9" } }
+
+**opponent_ready — 对手已准备（服务端推送）**
+```json
+{ "type": "opponent_ready", "data": { "user_id": 123 } }
+```
+说明：当对手为 AI 或通过其它客户端自动 ready 时，服务端会通知在线的人类玩家对手已就绪。
+
+**opponent_rematch — 对手请求再来一局（服务端推送）**
+```json
+{ "type": "opponent_rematch", "data": { "user_id": 123 } }
+```
+说明：对手发起 rematch（或 AI 自动 rematch）时发出通知。客户端可显示“对手想再来一局”的提示。
 ```
 
 **move_result — 着法结果（服务端推送）**
@@ -639,6 +653,8 @@ class Difficulty(IntEnum):
     "total_moves": 82
   }
 }
+
+  补充：在 `game_over` 后客户端可以选择发送 `game_rematch` 来请求再来一局。服务端在 `FINISHED` 状态会等待双方 rematch（等待时长由服务配置 `rematch_timeout` 决定），满足条件后服务端会交换颜色并开始下一局；若超时则回退到 `WAITING` 状态。
 ```
 
 **game_resign / game_draw_req / game_draw_ans**
@@ -663,6 +679,18 @@ class Difficulty(IntEnum):
 { "type": "opponent_left", "data": { "reason": "disconnect", "timeout": 60 } }
 { "type": "opponent_rejoin", "data": { "username": "player2" } }
 ```
+
+**opponent_ready — 对手准备通知（服务端推送）**
+```json
+{ "type": "opponent_ready", "data": { "user_id": 0 } }
+```
+
+**opponent_rematch — 对手发起续局（服务端推送）**
+```json
+{ "type": "opponent_rematch", "data": { "user_id": 0 } }
+```
+
+这些消息用于 READY / FINISHED 流程中通知对手的就绪或续局意向。机器人通常使用约定的 `user_id`（例如 `0`）来标识。
 
 **state_sync — 完整状态同步（断线重连后推送）**
 ```json

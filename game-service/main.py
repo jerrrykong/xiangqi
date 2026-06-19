@@ -222,6 +222,12 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     room_manager.stop_disconnect_checker()
+    # Ensure all room runners are cancelled and finished before cleanup
+    try:
+        await room_manager.stop_all_rooms()
+    except Exception as e:
+        logger.warning(f"Error while stopping room runners: {e}")
+
     heartbeat_task.cancel()
     try:
         await heartbeat_task

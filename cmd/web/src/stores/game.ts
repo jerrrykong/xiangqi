@@ -17,7 +17,9 @@ import type {
   OpponentRematchData,
 } from '@/ws/types'
 import { wsClient } from '@/ws/client'
+import { WSError } from '@/ws/request'
 import { WSMsgType } from '@/ws/types'
+import { showToast } from '@/components/common/ui'
 import { useAuthStore } from './auth'
 import { useRoomStore } from './room'
 import router from '@/router'
@@ -468,9 +470,32 @@ export const useGameStore = defineStore('game', () => {
   }
 
   // 点击"再来一局"（FINISHED 阶段）
-  function sendRematch() {
-    wsClient.send({ type: WSMsgType.GAME_REMATCH, seq: 0, data: {} })
+  async function sendRematch() {
     iWantRematch.value = true
+
+    try {
+      // 如果本地还没切到 finished，先等一下，给服务端处理留出时间
+      if (phase.value !== 'finished') {
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      // 单次请求，不重试。服务端可能返回 4006（Not in finished phase）。
+      await wsClient.request(WSMsgType.GAME_REMATCH, {}, 5000)
+      // 成功发送并被服务器接受
+      return
+    } catch (err: any) {
+      // 不进行重试：如果是 4006，提示用户并忽略；其他错误则清理状态并记录
+      if ((err instanceof WSError && err.code === 4006) || err?.code === 4006) {
+        console.warn('[Game] Rematch rejected (not finished).')
+        showToast('当前局还未结束，无法再来一局', 'warning')
+        // 保持 iWantRematch 的状态可由 UI 或后续同步清理，这里保持为 true 以反映用户意愿
+        return
+      }
+
+      console.error('[Game] Rematch failed:', err)
+      iWantRematch.value = false
+      showToast('再来一局请求失败，请稍后重试', 'error')
+      return
+    }
   }
 
   // 选择棋子
@@ -594,8 +619,11 @@ export const useGameStore = defineStore('game', () => {
       board.value = getInitialBoard()
       const authStore = useAuthStore()
       const userId = authStore.user?.user_id
-      if (!data.red_player || !data.black_player) {
-        console.error('[Game] Game start missing player info:', 'red=', data.red_player, 'black=', data.black_player)
+      // 某些情况下（对手为 AI）服务端可能只返回一侧玩家信息，视为正常情况
+      if (!data.red_player && !data.black_player) {
+        console.error('[Game] Game start missing both player infos:', data)
+      } else if (!data.red_player || !data.black_player) {
+        console.warn('[Game] Game start: one player info missing (likely AI).', 'red=', data.red_player, 'black=', data.black_player)
       }
       yourColor.value = data.your_side === 'red' ? 0 : 1
 

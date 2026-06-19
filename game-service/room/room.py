@@ -81,6 +81,9 @@ class Room:
 
     # Game count in this room (for tracking multi-game sessions)
     game_count: int = 0
+    # Allow full-AI rooms to run automatically when no humans present.
+    # This is a reserved flag that is set via API when creating AI-only rooms.
+    allow_full_ai_run: bool = False
 
     @property
     def is_full(self) -> bool:

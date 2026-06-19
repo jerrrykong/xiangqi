@@ -27,6 +27,11 @@ game:
   heartbeat_interval: 30       # 心跳间隔(秒)
   heartbeat_timeout: 60        # 心跳超时(秒)
   disconnect_timeout: 300      # 断线超时(秒)，非Playing状态下超时视为离开房间
+  # Room persistence and AI behavior tuning
+  persist_every_n_moves: 5     # 每 N 步持久化一次房间状态（减少 IO）
+  ai_ready_delay: 0.25         # AI 在 READY 状态下自动 ready 的延迟（秒）
+  ai_rematch_delay: 0.5        # AI 在 FINISHED 状态下自动 rematch 的延迟（秒）
+  rematch_timeout: 60.0        # FINISHED 状态等待 rematch 的超时时间（秒）
 
 match:
   tick_interval: 2             # 匹配循环间隔(秒)

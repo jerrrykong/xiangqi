@@ -47,6 +47,11 @@ class GameConfig:
     heartbeat_interval: int = 30
     heartbeat_timeout: int = 60
     disconnect_timeout: int = 300  # 断线超时(秒)，非Playing状态下超时视为离开房间
+    # Persistence and AI timing
+    persist_every_n_moves: int = 5
+    ai_ready_delay: float = 0.25
+    ai_rematch_delay: float = 0.5
+    rematch_timeout: float = 60.0
 
 
 @dataclass
@@ -116,6 +121,11 @@ def _apply_env_overrides(config: Config) -> None:
         "GS_JWT_ALGORITHM": ("jwt", "algorithm", str),
         "GS_JWT_EXPIRE_HOURS": ("jwt", "expire_hours", int),
         "GS_INTERNAL_SECRET": ("internal", "secret", str),
+        # Game-level overrides
+        "GS_GAME_PERSIST_EVERY_N_MOVES": ("game", "persist_every_n_moves", int),
+        "GS_GAME_AI_READY_DELAY": ("game", "ai_ready_delay", float),
+        "GS_GAME_AI_REMATCH_DELAY": ("game", "ai_rematch_delay", float),
+        "GS_GAME_REMATCH_TIMEOUT": ("game", "rematch_timeout", float),
     }
 
     for env_key, (section, attr, converter) in env_map.items():

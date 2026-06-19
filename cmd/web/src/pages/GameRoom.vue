@@ -166,7 +166,8 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
               </div>
               <!-- 如果你是黑方，显示红方对手的名字 -->
               <div v-if="roomStore.currentRoom?.yourSide === 'black' && roomStore.currentRoom?.opponent" class="opponent-name">
-                {{ roomStore.currentRoom.opponent.username }}
+                {{ (roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0) ? '电脑' : roomStore.currentRoom.opponent.username }}
+                <span v-if="roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0" class="ai-badge">AI</span>
               </div>
               <div v-else-if="roomStore.currentRoom?.redReady" class="ready-text">
                 <span class="check">✓</span> 已准备
@@ -185,7 +186,8 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
               </div>
               <!-- 如果你是红方，显示黑方对手的名字 -->
               <div v-if="roomStore.currentRoom?.yourSide === 'red' && roomStore.currentRoom?.opponent" class="opponent-name">
-                {{ roomStore.currentRoom.opponent.username }}
+                {{ (roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0) ? '电脑' : roomStore.currentRoom.opponent.username }}
+                <span v-if="roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0" class="ai-badge">AI</span>
               </div>
               <div v-else-if="roomStore.currentRoom?.blackReady" class="ready-text">
                 <span class="check">✓</span> 已准备
@@ -420,5 +422,15 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
 
 .tips p {
   margin-bottom: 4px;
+}
+
+.ai-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  color: #fff;
+  background: #6b7280;
+  border-radius: 4px;
 }
 </style>

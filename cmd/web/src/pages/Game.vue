@@ -205,10 +205,20 @@ const ratingChangeText = computed(() => {
 })
 
 /** 对手信息 */
+const opponentIsAI = computed(() => {
+  // 判断为 AI 的条件：房间类型为 pve，或对手 userId 为 0（服务端 bot id）
+  if (!roomStore.currentRoom) return false
+  if (roomStore.currentRoom.roomType === 'pve') return true
+  const opp = roomStore.currentRoom.opponent
+  return !!(opp && opp.userId === 0)
+})
+
 const opponentName = computed(() => {
   if (!roomStore.currentRoom?.opponent) {
-    return roomStore.currentRoom?.roomType === 'pve' ? 'AI' : '等待中'
+    return roomStore.currentRoom?.roomType === 'pve' ? '电脑' : '等待中'
   }
+  // 当对手为 AI 时，显示友好的名称 "电脑"
+  if (opponentIsAI.value) return '电脑'
   return roomStore.currentRoom.opponent.username
 })
 
@@ -304,6 +314,7 @@ function formatTime(seconds: number): string {
         <PlayerInfo
           side="opponent"
           :name="opponentName"
+          :level="opponentIsAI ? 'AI' : undefined"
           :time="opponentTime"
           :is-turn="!gameStore.isMyTurn && gameStore.isGameStarted && !gameStore.isGameOver"
           :show-timer="gameStore.isGameStarted"

@@ -300,6 +300,24 @@ def can_transition(from_state, to_state):
 
 `RoomManager` 还负责将房间与对局状态写入数据库，以及在房间结束后更新 ELO 分数。
 
+### 5.3.1 新增组件与配置
+
+为提高房间驱动的可测试性与可维护性，引入 `RoomRunner` 组件：
+
+- `RoomRunner`：每个房间对应一个短生命周期协程，负责以状态机方式驱动房间（WAITING → READY → PLAYING → FINISHED），并在合适时机调用 `RoomManager._run_room(room)` 来执行对局循环。
+- `RoomRunner` 负责在 `READY` 阶段触发 AI 的短延迟自动 ready，`FINISHED` 阶段收集 rematch 请求并在满足条件时直接在 runner 内部启动下一局或在超时后回退到 `WAITING`。
+
+新增的配置项（位于 `game` 配置段）：
+- `persist_every_n_moves`：整数，默认 `5`，表示每 N 步持久化一次房间状态（减少 I/O）；
+- `ai_ready_delay`：浮点，默认 `0.25` 秒，AI 在 READY 阶段自动 ready 的延迟；
+- `ai_rematch_delay`：浮点，默认 `0.5` 秒，AI 在 FINISHED 阶段自动 rematch 的延迟；
+- `rematch_timeout`：浮点，默认 `60.0` 秒，FINISHED 状态等待 rematch 的超时时间。
+
+房间数据模型扩展：
+- `allow_full_ai_run`：布尔，预留字段，表示是否允许该房间在无真人情况下持续自动对弈；仅通过 API 创建/删除时设置，默认 `False`。
+
+持久化策略调整：将“每步保存”改为“每 N 步或失败后回退保存”的策略，以减少数据库写入压力，同时在关键点（对局结束）保证写入完整记录以便恢复与统计。
+
 ### 5.4 房间消息与交互
 
 `room/room_handler.py` 支持的消息：
@@ -314,6 +332,13 @@ def can_transition(from_state, to_state):
 - `game_draw_ans`
 - `game_ready`
 - `game_rematch`
+
+服务端推送（与 READY / FINISHED 流程相关）:
+
+- `opponent_ready`：告知玩家对手已准备（主要用于 bot 自动就绪场景，`data` 包含 `user_id`）。
+- `opponent_rematch`：告知玩家对手发起了续局（`data` 包含 `user_id`）。
+
+在 `FINISHED` 阶段，`RoomRunner` 会等待 `rematch_timeout`（可配置）时间以收集双方的续局意向；若在超时内双方达成一致，则在原房间内交换颜色并直接进入下一局，否则回退到 `WAITING`。
 
 `room_create` 支持 `room_type=pvp` 和 `room_type=pve`。
 
