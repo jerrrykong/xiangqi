@@ -40,6 +40,11 @@ class RoomRunner:
                     logger.info(f"RoomRunner stopping: room {room.room_id} no longer managed")
                     return
 
+                # If application is shutting down, exit quickly to avoid long blocking operations
+                if getattr(mgr, 'shutting_down', False):
+                    logger.info(f"RoomRunner exiting early due to shutting_down for room {room.room_id}")
+                    return
+
                 phase = room.phase
 
                 if phase == RoomPhase.WAITING:

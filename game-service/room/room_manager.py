@@ -524,6 +524,10 @@ class RoomManager:
 
     async def _do_ai_move(self, room: Room) -> None:
         """AI makes a move."""
+        # If shutting down, skip starting AI computation
+        if getattr(self, 'shutting_down', False):
+            logger.info(f"Shutting down: skip AI move for room={room.room_id}")
+            return
         player = room.red_player if room.ai_side == Color.BLACK else room.black_player
         if player and player.is_connected:
             await player.send({"type": "ai_thinking", "data": {}})
@@ -1040,15 +1044,35 @@ class RoomManager:
             except Exception:
                 pass
 
-        # Await tasks with a short timeout to avoid blocking shutdown
-        for room_id, task in list(self.tasks.items()):
+        # Await tasks with a short timeout to avoid blocking shutdown.
+        # Use asyncio.wait to collect which tasks finished and which are still pending.
+        pending = set(self.tasks.values())
+        if pending:
             try:
-                await asyncio.wait_for(task, timeout=5.0)
-            except asyncio.CancelledError:
-                # expected
-                pass
+                done, pending = await asyncio.wait(pending, timeout=5.0)
             except Exception as e:
-                logger.warning(f"Error while waiting for room task {room_id}: {e}")
+                logger.warning(f"Error while waiting for room tasks: {e}")
+
+        # Log completed tasks
+        for t in list(self.tasks.values()):
+            if t.done():
+                logger.info(f"Room runner task done: {t.get_name() or repr(t)}")
+
+        # For any pending tasks, attempt one more cancel and collect stacks for diagnostics
+        if pending:
+            logger.warning(f"{len(pending)} room runner tasks did not exit within timeout; collecting diagnostics")
+            for t in pending:
+                try:
+                    logger.warning(f"Pending task: {repr(t)}")
+                    # Try cancel again
+                    t.cancel()
+                    # Capture stack frames for diagnostic
+                    stacks = t.get_stack(limit=10)
+                    if stacks:
+                        for frame in stacks:
+                            logger.warning("Task stack: %s", ''.join(logging.Formatter().formatStack(frame)))
+                except Exception:
+                    logger.exception("Error while inspecting pending task")
 
         self.tasks.clear()
         logger.info("All room runners stopped")

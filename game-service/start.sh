@@ -23,7 +23,10 @@ PORT=$(python -c "import yaml; c=yaml.safe_load(open('config.yaml')); print(c['s
 echo "Starting Game Service v2.0 on ${HOST}:${PORT}..."
 
 if [ "$1" = "prod" ]; then
-    uvicorn main:app --host "$HOST" --port "$PORT"
+    exec uvicorn main:app --host "$HOST" --port "$PORT" --timeout-graceful-shutdown 30
 else
-    uvicorn main:app --host "$HOST" --port "$PORT" --reload
+    # In development with --reload, uvicorn spawns a watcher and worker processes.
+    # Run uvicorn in background and forward SIGINT/SIGTERM to the uvicorn PID
+    # so Ctrl+C triggers a graceful shutdown of the server and its children.
+    exec uvicorn main:app --host "$HOST" --port "$PORT" --timeout-graceful-shutdown 30 --reload 
 fi

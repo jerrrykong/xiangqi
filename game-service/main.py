@@ -227,23 +227,36 @@ async def lifespan(app: FastAPI):
     room_manager.shutting_down = True
 
     # 2) Stop match service to avoid creating new rooms
+    logger.info("Stopping match service...")
     try:
-        await match_service.stop()
+        await asyncio.wait_for(match_service.stop(), timeout=5.0)
+        logger.info("Match service stopped")
+    except asyncio.TimeoutError:
+        logger.warning("Timeout while stopping match service")
     except Exception:
         logger.exception("Error stopping match service")
 
     # 3) Stop periodic background checkers (disconnect checker)
+    logger.info("Stopping disconnect checker...")
     room_manager.stop_disconnect_checker()
 
-    # 4) Cancel and wait for all room runners to finish (they will avoid DB writes due to shutting_down)
+    # 4) Cancel and wait for all room runners to finish
+    logger.info("Stopping all room runners...")
     try:
-        await room_manager.stop_all_rooms()
+        await asyncio.wait_for(room_manager.stop_all_rooms(), timeout=5.0)
+        logger.info("All room runners stopped")
+    except asyncio.TimeoutError:
+        logger.warning("Timeout while waiting for room runners to stop")
     except Exception as e:
         logger.warning(f"Error while stopping room runners: {e}")
 
     # 5) Close all client connections (this may trigger handle_disconnect / leave_room while DB is still open)
+    logger.info("Closing all client connections...")
     try:
-        await connection_manager.close_all("server_shutdown")
+        await asyncio.wait_for(connection_manager.close_all("server_shutdown"), timeout=5.0)
+        logger.info("All client connections closed")
+    except asyncio.TimeoutError:
+        logger.warning("Timeout while closing client connections")
     except Exception:
         logger.exception("Error closing client connections")
 
@@ -261,7 +274,9 @@ async def lifespan(app: FastAPI):
         pass
 
     # 7) Now safe to cleanup / close DB
+    logger.info("Cleaning up resources (DB close etc.)...")
     await cleanup()
+    logger.info("Cleanup complete")
     logger.info("Game Service v2.0 shut down")
 
 
@@ -498,6 +513,7 @@ def main():
         reload=False,
         log_level=log_level,
         log_config=None,
+        timeout_graceful_shutdown=30
     )
 
 

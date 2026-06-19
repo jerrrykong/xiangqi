@@ -133,14 +133,26 @@ class ConnectionManager:
         It's intended to be used during shutdown so that connection-level cleanup
         (e.g. `handle_disconnect`) can run while the DB is still available.
         """
+        # Kick all connections and unregister them with per-connection timeout to avoid blocking shutdown.
         conns = list(self._connections.values())
+        tasks = []
         for conn in conns:
             try:
-                await conn.kick(reason)
+                # Protect individual kicks with a short timeout.
+                tasks.append(conn.kick(reason))
+                # await asyncio.wait_for(conn.kick(reason), timeout=1.0)
+            except asyncio.TimeoutError:
+                logger.warning("Timeout kicking connection %s", getattr(conn, "conn_id", "?"))
             except Exception:
-                logger.exception(f"Failed to kick conn={conn.conn_id}")
-            # Unregister locally
-            self.unregister(conn)
+                logger.exception("Error kicking connection during shutdown")
+            try:
+                # unregister is synchronous
+                self.unregister(conn)
+            except Exception:
+                logger.exception("Error unregistering connection during shutdown")
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info(f"All connections closed (online={len(self._user_connections)})")
 
     async def send_to_user(self, user_id: int, data: dict) -> bool:
         """Send data to a specific user."""
