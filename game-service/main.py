@@ -220,19 +220,47 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown sequence (ordered to avoid DB pool closed while workers still write)
+    logger.info("Shutdown initiated")
+
+    # 1) Prevent room manager from performing DB writes
+    room_manager.shutting_down = True
+
+    # 2) Stop match service to avoid creating new rooms
+    try:
+        await match_service.stop()
+    except Exception:
+        logger.exception("Error stopping match service")
+
+    # 3) Stop periodic background checkers (disconnect checker)
     room_manager.stop_disconnect_checker()
-    # Ensure all room runners are cancelled and finished before cleanup
+
+    # 4) Cancel and wait for all room runners to finish (they will avoid DB writes due to shutting_down)
     try:
         await room_manager.stop_all_rooms()
     except Exception as e:
         logger.warning(f"Error while stopping room runners: {e}")
 
+    # 5) Close all client connections (this may trigger handle_disconnect / leave_room while DB is still open)
+    try:
+        await connection_manager.close_all("server_shutdown")
+    except Exception:
+        logger.exception("Error closing client connections")
+
+    # Give small grace period for disconnect handlers to finish
+    try:
+        await asyncio.sleep(0.5)
+    except asyncio.CancelledError:
+        pass
+
+    # 6) Stop heartbeat and other background tasks
     heartbeat_task.cancel()
     try:
         await heartbeat_task
     except asyncio.CancelledError:
         pass
+
+    # 7) Now safe to cleanup / close DB
     await cleanup()
     logger.info("Game Service v2.0 shut down")
 

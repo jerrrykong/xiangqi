@@ -57,6 +57,8 @@ class RoomManager:
         # How long to wait in FINISHED state for rematch before rolling back
         self.rematch_timeout = float(rematch_timeout)
         self._disconnect_checker_task: Optional[asyncio.Task] = None
+        # Flag set during application shutdown to avoid DB writes
+        self.shutting_down: bool = False
 
     # ---- Room Creation ----
 
@@ -354,6 +356,11 @@ class RoomManager:
                     and red_id in room.rematch_players
                     and black_id in room.rematch_players):
                 return
+
+        # If shutting down, skip starting new games / persisting
+        if getattr(self, 'shutting_down', False):
+            logger.info(f"Shutting down: skip auto-rematch start for room={room.room_id}")
+            return
 
         # Step 3: 开局（统一逻辑）
         logger.info(f"Auto-rematch: starting new game in room={room.room_id}")
@@ -745,6 +752,11 @@ class RoomManager:
 
         moves_count = room.game_state.move_count if room.game_state else 0
 
+        # If shutting down, skip DB writes to avoid pool-closed errors
+        if getattr(self, 'shutting_down', False):
+            logger.info(f"Shutting down: skip saving game result for room={room.room_id}")
+            return 0, 0
+
         # Rating calculation for PvP
         red_rating_change = 0
         black_rating_change = 0
@@ -923,6 +935,10 @@ class RoomManager:
         self.rooms.pop(room.room_id, None)
 
         # Persist deletion to DB
+        if getattr(self, 'shutting_down', False):
+            logger.info(f"Shutting down: skip DB cleanup for room={room.room_id}")
+            return
+
         try:
             if room.game_count > 0:
                 await self.room_repo.finish_game(room.room_id, "draw", -1)
@@ -1093,6 +1109,9 @@ class RoomManager:
 
     async def _persist_room_state(self, room: Room) -> None:
         """Persist current game state to DB for server restart recovery."""
+        if getattr(self, 'shutting_down', False):
+            logger.debug(f"Skipping persist for {room.room_id} because shutting_down=True")
+            return
         if not room.game_state:
             return
         try:

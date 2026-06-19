@@ -126,6 +126,22 @@ class ConnectionManager:
         """Get connection by connection ID."""
         return self._connections.get(conn_id)
 
+    async def close_all(self, reason: str = "") -> None:
+        """Close all active connections.
+
+        This method will attempt to kick all active connections and unregister them.
+        It's intended to be used during shutdown so that connection-level cleanup
+        (e.g. `handle_disconnect`) can run while the DB is still available.
+        """
+        conns = list(self._connections.values())
+        for conn in conns:
+            try:
+                await conn.kick(reason)
+            except Exception:
+                logger.exception(f"Failed to kick conn={conn.conn_id}")
+            # Unregister locally
+            self.unregister(conn)
+
     async def send_to_user(self, user_id: int, data: dict) -> bool:
         """Send data to a specific user."""
         conn = self.get_by_user_id(user_id)
