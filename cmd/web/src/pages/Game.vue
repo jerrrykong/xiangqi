@@ -41,6 +41,12 @@ _reconnectMsgWatchStop = watch(() => [...authStore.reconnectMessages], (msgs) =>
 /** 移动端底部面板 */
 const mobilePanel = ref<'' | 'moves'>('')
 
+// 保证传给 MoveList 的 moves 是普通数组（解包拷贝），避免在 Transition/移动面板中出现渲染空白
+const moveList = computed(() => {
+  // gameStore.moveHistory 可能是响应式引用，拷贝一份确保子组件能收到稳定的数组值
+  return gameStore.moveHistory ? [...gameStore.moveHistory] : []
+})
+
 /** 初始化游戏 */
 onMounted(() => {
   onMoveError((msg) => showToast(msg, 'warning'))
@@ -271,8 +277,7 @@ function formatTime(seconds: number): string {
   <div class="game-page">
     <!-- 顶部信息栏 -->
     <header class="game-topbar">
-      <img :src="baseUrl + 'assets/svg/ui/text-logo.svg'" alt="楚汉争锋" class="topbar-logo" />
-      <div class="topbar-info">
+      <div class="topbar-info" style="margin-left: 0">
         <span class="topbar-room">房间 #{{ roomId.slice(0, 8) }}</span>
         <span v-if="gameStore.isGameStarted" class="turn-indicator" :class="turnClass">
           <span class="turn-dot"></span>
@@ -373,7 +378,7 @@ function formatTime(seconds: number): string {
       <!-- 侧边栏：着法记录（桌面端） -->
       <div class="game-sidebar-desktop">
         <MoveList
-          :moves="gameStore.moveHistory"
+          :moves="moveList"
           :title="'着法记录'"
         />
       </div>
@@ -397,7 +402,7 @@ function formatTime(seconds: number): string {
         <div class="mobile-panel-sheet" @click.stop>
           <div class="mobile-panel-handle"></div>
           <MoveList
-            :moves="gameStore.moveHistory"
+            :moves="moveList"
             :title="'着法记录'"
           />
         </div>
@@ -420,10 +425,7 @@ function formatTime(seconds: number): string {
             {{ ratingChangeText }}
           </div>
           <div class="result-actions">
-            <button class="btn btn-secondary" @click="handleGameOverBack">返回大厅</button>
-            <button class="btn btn-primary" @click="handleRematch" :disabled="gameStore.iWantRematch">
-              {{ gameStore.iWantRematch ? '等待对方...' : '再来一局' }}
-            </button>
+            <button class="btn btn-primary" @click="handleResultDialogClose">确认</button>
           </div>
         </div>
       </div>
