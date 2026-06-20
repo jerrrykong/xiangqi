@@ -202,13 +202,26 @@ export const useAuthStore = defineStore('auth', () => {
           clearAuth()
           wsClient.disconnect()
         } else if (result === 'ok') {
-          // 重连成功，确保状态同步
-          // 如果服务端告知 in_room，state_sync 会自动推送
-          // 如果不在房间，确保回到大厅
-          if (authState.value === 'authenticated') {
+          // 重连成功：刷新用户最新信息
+          await refreshUserInfo()
+
+          if (authState.value === 'in_room') {
+            // 在房间中 → state_sync 会自动推送并处理导航和状态恢复
+            // handleAuthTokenResult / handleReconnectResult 已设置 currentRoom 并导航到 Game 页
+            console.log('[Auth] Reconnect: in_room, waiting for state_sync')
+          } else if (authState.value === 'matchmaking') {
+            // 匹配中 → 导航到大厅（大厅会显示匹配状态）
+            const currentPath = router.currentRoute.value.path
+            if (currentPath !== '/lobby') {
+              router.replace('/lobby')
+            }
+          } else {
+            // 普通已认证 → 如果在游戏页面说明已不在房间，回大厅
             const currentPath = router.currentRoute.value.path
             if (currentPath.startsWith('/game/')) {
               // 用户在游戏页面但服务端说不在房间中 → 回大厅
+              const roomStore = useRoomStore()
+              roomStore.clearRoom()
               router.replace('/lobby')
             }
           }
@@ -360,19 +373,8 @@ export const useAuthStore = defineStore('auth', () => {
         console.log('[Auth] Token auth in_room: set currentRoom, room_id=', data.room_id, 'phase=', phase)
       }
 
-      // 断线重连提示
-      if (isReconnecting.value && previousAuthState.value === 'in_room') {
-        if (phaseBeforeDisconnect.value === 'playing') {
-          // 之前在 Playing 状态断线
-          if (data.room_phase === 'finished') {
-            reconnectMessages.value.push('对局已经结束！')
-          } else if (data.room_phase !== 'playing') {
-            // 房间还在但已不在 Playing（对手走了/房间回 waiting）
-            reconnectMessages.value.push('你已离开房间')
-          }
-        }
-        // 非Playing断线（waiting/ready/finished）: 正常回到房间，不弹窗
-      }
+      // 断线重连提示由 state_sync 统一处理（避免与 state_sync 重复）
+      // handleAuthTokenResult 仅设置 room 状态，不添加 reconnectMessages
 
       // 跳转到 Game 页面（无论 waiting 还是 playing，都显示棋盘+等待/对局状态）
       if (router.currentRoute.value.path !== `/game/${data.room_id}`) {
@@ -491,6 +493,28 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // 从服务端获取最新用户信息（重连后调用，确保 rating 等数据最新）
+  async function refreshUserInfo() {
+    try {
+      const result = await wsClient.request(WSMsgType.USER_GET_ME, {})
+      if (result && result.user_id) {
+        user.value = {
+          user_id: result.user_id,
+          username: result.username,
+          nickname: result.nickname || result.username,
+          avatar: result.avatar,
+          rating: result.rating || 1500,
+          games_count: result.games_count || 0,
+          is_admin: result.is_admin || false,
+        }
+        localStorage.setItem('user', JSON.stringify(user.value))
+        console.log('[Auth] User info refreshed after reconnect, rating=', user.value.rating)
+      }
+    } catch (e) {
+      console.warn('[Auth] Failed to refresh user info after reconnect:', e)
+    }
+  }
+
   // 更新用户信息 (通用)
   function updateUser(profile: UserProfile) {
     user.value = profile
@@ -529,6 +553,7 @@ export const useAuthStore = defineStore('auth', () => {
     phaseBeforeDisconnect,
     updateUser,
     updateUserFromWS,
+    refreshUserInfo,
     authenticate,
     hasCredentials,
     clearAuth,

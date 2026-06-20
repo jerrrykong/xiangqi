@@ -33,7 +33,7 @@ const soundEnabled = ref(true)
 /** 监听断线重连提示 */
 let _reconnectMsgWatchStop: (() => void) | null = null
 _reconnectMsgWatchStop = watch(() => [...authStore.reconnectMessages], (msgs) => {
-  if (msgs.length > 0 && gameStore.phase !== 'playing') {
+  if (msgs.length > 0) {
     showReconnectMessages()
   }
 })
@@ -45,6 +45,16 @@ const mobilePanel = ref<'' | 'moves'>('')
 const moveList = computed(() => {
   // gameStore.moveHistory 可能是响应式引用，拷贝一份确保子组件能收到稳定的数组值
   return gameStore.moveHistory ? [...gameStore.moveHistory] : []
+})
+
+// 调试：当打开移动端着法面板时打印 moveList 内容
+watch(mobilePanel, (val) => {
+  if (val === 'moves') {
+    // moveList 是 computed，访问 .value
+    console.log('[Game] mobile panel opened: moveList.length=', moveList.value.length)
+    // 打印首 20 条以避免控制台被淹没
+    console.log('[Game] moveList sample=', moveList.value.slice(0, 20))
+  }
 })
 
 /** 初始化游戏 */
@@ -401,10 +411,12 @@ function formatTime(seconds: number): string {
       <div v-if="mobilePanel" class="mobile-panel-overlay" @click="mobilePanel = ''">
         <div class="mobile-panel-sheet" @click.stop>
           <div class="mobile-panel-handle"></div>
-          <MoveList
-            :moves="moveList"
-            :title="'着法记录'"
-          />
+          <div class="mobile-panel-body">
+            <MoveList
+              :moves="moveList"
+              :title="'着法记录'"
+            />
+          </div>
         </div>
       </div>
     </Transition>
@@ -687,15 +699,27 @@ function formatTime(seconds: number): string {
   background: var(--color-bg-overlay);
   z-index: var(--z-modal-backdrop);
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 .mobile-panel-sheet {
+  /* 覆盖 popups.css 的全局样式（本组件使用 Vue Transition 动画而非 .open class 切换） */
+  position: relative;
+  bottom: auto;
+  left: auto;
+  right: auto;
+  z-index: auto;
+  transform: none;
+  transition: none;
+
   width: 100%;
   max-height: 60vh;
   background: var(--color-bg-card);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
 }
 
@@ -705,6 +729,17 @@ function formatTime(seconds: number): string {
   background: var(--color-text-muted);
   border-radius: var(--radius-full);
   margin: 0 auto var(--space-3);
+}
+
+/* Fix: ensure MoveList inside mobile panel can size correctly
+   MoveList (.game-sidebar) uses height:100% which collapses
+   when its parent has no fixed height. Override to allow
+   natural content height and enable scrolling inside the sheet. */
+.mobile-panel-body .game-sidebar {
+  height: auto;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 结果弹窗 */
@@ -813,6 +848,20 @@ function formatTime(seconds: number): string {
   }
 }
 
+/* 移动端：胜负/求和弹窗保持上下居中（覆盖 review.css 的 flex-end 底部sheet） */
+@media (max-width: 768px) {
+  .review-overlay {
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+  }
+
+  .review-popup {
+    max-width: 360px;
+    border-radius: var(--radius-xl);
+  }
+}
+
 /* Overlay 动画 */
 .overlay-enter-active { transition: all 0.25s ease-out; }
 .overlay-leave-active { transition: all 0.2s ease-in; }
@@ -823,7 +872,9 @@ function formatTime(seconds: number): string {
 
 /* Sheet 动画 */
 .sheet-enter-active { transition: all 0.3s ease-out; }
+.sheet-enter-active .mobile-panel-sheet { transition: all 0.3s ease-out; }
 .sheet-leave-active { transition: all 0.2s ease-in; }
+.sheet-leave-active .mobile-panel-sheet { transition: all 0.2s ease-in; }
 .sheet-enter-from .mobile-panel-overlay { opacity: 0; }
 .sheet-enter-from .mobile-panel-sheet { transform: translateY(100%); }
 .sheet-leave-to .mobile-panel-overlay { opacity: 0; }

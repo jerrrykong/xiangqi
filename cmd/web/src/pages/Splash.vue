@@ -145,9 +145,11 @@ watch(() => authStore.authState, (newState) => {
     <!-- 主内容 -->
     <div class="splash-content">
       <!-- Logo -->
+      <!-- 
       <div class="logo-container" :class="{ visible: logoVisible }">
         <img :src="baseUrl + 'assets/svg/ui/logo.svg'" alt="象棋" class="logo-icon" />
       </div>
+      -->
 
       <!-- 游戏名称 -->
       <div class="title-container" :class="{ visible: titleVisible }">

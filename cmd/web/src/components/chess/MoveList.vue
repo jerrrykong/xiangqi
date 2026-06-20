@@ -6,7 +6,7 @@
  * @prop title - 标题
  */
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 
 const props = defineProps<{
   moves: Array<{ notation: string; piece: number; moveNumber: number }>
@@ -49,6 +49,16 @@ watch(() => props.currentMove, () => {
       active.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }
+})
+
+// 调试：打印接收到的 props.moves 与计算后的 moveItems
+onMounted(() => {
+  console.log('[MoveList] mounted: moves.length=', props.moves.length)
+  console.log('[MoveList] initial moveItems=', moveItems.value.slice(0, 20))
+})
+
+watch(() => props.moves, (newVal) => {
+  console.log('[MoveList] props.moves changed, length=', newVal.length)
 })
 </script>
 

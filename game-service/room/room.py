@@ -133,6 +133,10 @@ class Room:
             self.red_player.side = "red"
         if self.black_player:
             self.black_player.side = "black"
+        # If this is a PvE room, the AI side should also be flipped
+        # when players swap colors so AI continues to act on the correct side.
+        if self.ai_side is not None:
+            self.ai_side = Color.RED if self.ai_side == Color.BLACK else Color.BLACK
 
     def add_player(self, player: PlayerSession, side: str) -> None:
         """Add a player to the specified side."""

@@ -664,7 +664,10 @@ export const useGameStore = defineStore('game', () => {
   }
 
   // 执行走棋并播放动画
-  function applyMoveWithAnimation(move: Move) {
+  // 音效播放顺序：
+  //   对方走棋：pickup(拿起) → voice(语音) + animation(动画) → putdown(落子)
+  //   自己走棋：voice + animation → putdown
+  function applyMoveWithAnimation(move: Move, isOpponentMove: boolean = false) {
     const piece = board.value[move.from_row][move.from_col]
     if (piece === -1) {
       console.warn('[Game] applyMoveWithAnimation: from position is empty, skipping', move)
@@ -672,59 +675,64 @@ export const useGameStore = defineStore('game', () => {
     }
 
     const duration = computeMoveDuration(move)
-    animatingMove.value = {
-      from_row: move.from_row,
-      from_col: move.from_col,
-      to_row: move.to_row,
-      to_col: move.to_col,
-      duration,
-    }
-
-    const captured = board.value[move.to_row][move.to_col]
-    board.value[move.to_row][move.to_col] = piece
-    board.value[move.from_row][move.from_col] = -1
-    lastMove.value = move
-    currentTurn.value = currentTurn.value === 0 ? 1 : 0
-    addMoveRecord(move, piece, captured)
-    updateCheckState()
-
-    // 音效
     const sound = getSoundManager()
-    // 落子音效
-    sound.play('putdown')
-    // 吃子音效
-    if (captured >= 0) {
-      sound.play('capture')
+
+    // Step 1: 对方走棋时先播放拿起棋子音效
+    if (isOpponentMove) {
+      sound.play('pickup')
     }
-    // 走棋语音（按优先级规则播放）
-    if (isInCheck.value) {
-      // 规则1: 将军 - 播放将军音效+语音（优先级最高）
-      setTimeout(() => {
+
+    // Step 2: 开始动画 + 更新棋盘 + 播放走棋语音（语音与动画同步开始）
+    // 对方走棋时稍延迟（让 pickup 音效先发出），自己走棋立即开始
+    const animStartDelay = isOpponentMove ? 120 : 0
+    const captured = board.value[move.to_row][move.to_col]
+
+    setTimeout(() => {
+      animatingMove.value = {
+        from_row: move.from_row,
+        from_col: move.from_col,
+        to_row: move.to_row,
+        to_col: move.to_col,
+        duration,
+      }
+
+      board.value[move.to_row][move.to_col] = piece
+      board.value[move.from_row][move.from_col] = -1
+      lastMove.value = move
+      currentTurn.value = currentTurn.value === 0 ? 1 : 0
+      addMoveRecord(move, piece, captured)
+      updateCheckState()
+
+      // 走棋语音（按优先级规则播放）
+      if (isInCheck.value) {
+        // 规则1: 将军 - 播放将军音效+语音（优先级最高）
         sound.play('check')
         sound.play('check_voice')
-      }, 400)
-      lastVoiceEndTime = Date.now() + 400 + 1200
-    } else {
-      // 规则2-11: 非将军时按优先级选择语音
-      const voiceKey = _determineMoveVoice(move, piece, captured)
-      if (voiceKey) {
-        setTimeout(() => {
+        lastVoiceEndTime = Date.now() + 1200
+      } else {
+        // 规则2-11: 非将军时按优先级选择语音
+        const voiceKey = _determineMoveVoice(move, piece, captured)
+        if (voiceKey) {
           sound.play(voiceKey)
-        }, 200)
-        lastVoiceEndTime = Date.now() + 200 + 1200
+          lastVoiceEndTime = Date.now() + 1200
+        }
       }
-    }
-    // 轮到对方后，如果轮到对手则不播，轮到自己播 your_turn
-    // （对手走棋后轮到自己时播 your_turn，在 handleOpponentMove 中处理）
+    }, animStartDelay)
 
-    // 动画结束后清除
+    // Step 3: 动画结束后播放落子音效 + 清除动画状态
     setTimeout(() => {
       if (animatingMove.value &&
         animatingMove.value.from_row === move.from_row &&
         animatingMove.value.from_col === move.from_col) {
         animatingMove.value = null
       }
-    }, duration + 20) // 多 20ms 避免动画未完成就清除
+      // 落子音效（动画结束后播放）
+      sound.play('putdown')
+      // 吃子音效
+      if (captured >= 0) {
+        sound.play('capture')
+      }
+    }, animStartDelay + duration + 50)
   }
 
   // ===== 走棋语音规则（优先级从高到低）=====
@@ -850,7 +858,7 @@ export const useGameStore = defineStore('game', () => {
       const move = pendingMove
       pendingMove = null
       if (move) {
-        applyMoveWithAnimation(move)
+        applyMoveWithAnimation(move, false) // 自己走棋：不需要 pickup 音效
       }
     } else {
       pendingMove = null
@@ -862,12 +870,13 @@ export const useGameStore = defineStore('game', () => {
   function handleOpponentMove(data: OpponentMoveData) {
     console.log('[Game] Opponent move:', data.from_pos, '->', data.to_pos)
     const move = posToMove(data.from_pos, data.to_pos)
-    applyMoveWithAnimation(move)
-    // 对手走完后轮到自己，播 your_turn
+    const duration = computeMoveDuration(move)
+    applyMoveWithAnimation(move, true) // 对方走棋：先播 pickup 音效
+    // 对手走完后轮到自己，播 your_turn（等走棋动画和语音结束后再播）
     if (!isGameOver.value) {
       setTimeout(() => {
         getSoundManager().play('your_turn')
-      }, 600)
+      }, duration + 1200 + 200)
     }
   }
 
@@ -880,7 +889,7 @@ export const useGameStore = defineStore('game', () => {
   function handleAIMove(data: AIMoveData) {
     isAIThinking.value = false
     const move = posToMove(data.from_pos, data.to_pos)
-    applyMoveWithAnimation(move)
+    applyMoveWithAnimation(move, true) // AI 走棋 = 对方走棋：先播 pickup 音效
   }
 
   // 处理游戏结束
@@ -899,7 +908,7 @@ export const useGameStore = defineStore('game', () => {
       }
       // 清除因网络原因残留的 pendingMove，服务器消息是权威的
       pendingMove = null
-      applyMoveWithAnimation(move)
+      applyMoveWithAnimation(move, true) // game_over 补播最后一手：视为对方走棋
     }
 
     isGameOver.value = true
@@ -1024,6 +1033,15 @@ export const useGameStore = defineStore('game', () => {
   // 处理状态同步 (断线重连)
   function handleStateSync(data: StateSyncData) {
     console.log('[Game] State sync, room=', data.room_id, 'phase=', data.phase, 'side=', data.your_side)
+
+    // 判断是否为同页面重连（当前已在同一房间的 Game 页面）
+    const currentPath = router.currentRoute.value.path
+    const isSameGamePage = currentPath === `/game/${data.room_id}`
+
+    // 同页面重连时保存当前对话框状态（用于恢复）
+    const prevShowResultDialog = isSameGamePage ? showResultDialog.value : false
+    const prevDrawRequestFrom = isSameGamePage ? drawRequestFrom.value : null
+
     roomId.value = data.room_id
     yourColor.value = data.your_side === 'red' ? 0 : 1
     redTime.value = data.red_remaining_time
@@ -1087,6 +1105,7 @@ export const useGameStore = defineStore('game', () => {
     animatingMove.value = null
     phase.value = data.phase || 'waiting'
     showResultDialog.value = false
+    drawRequestFrom.value = null
     iAmReady.value = false
     opponentReady.value = false
     iWantRematch.value = false
@@ -1115,7 +1134,16 @@ export const useGameStore = defineStore('game', () => {
     // FINISHED 状态下恢复
     if (data.phase === 'finished') {
       isGameOver.value = true
-      showResultDialog.value = false  // 重连不弹结果对话框
+      // 同页面重连：如果之前结果对话框是打开的，恢复它
+      // 跨页面重连：不自动弹出结果对话框
+      if (isSameGamePage && prevShowResultDialog) {
+        showResultDialog.value = true
+      }
+    }
+
+    // 同页面重连：恢复求和请求对话框（如果断线前存在且游戏仍在进行中）
+    if (isSameGamePage && prevDrawRequestFrom && data.phase === 'playing') {
+      drawRequestFrom.value = prevDrawRequestFrom
     }
 
     // 从 FEN 恢复棋盘

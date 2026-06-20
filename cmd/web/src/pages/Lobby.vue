@@ -54,6 +54,15 @@ watch(() => gameStore.isGameStarted, (val) => {
   }
 })
 
+/** 监听 WS 重连成功后刷新数据 */
+watch(() => wsClient.connectionState.value, (newState, oldState) => {
+  if (newState === 'connected' && oldState === 'disconnected') {
+    // 重连成功：刷新排行榜和历史数据
+    fetchRankings()
+    fetchHistory()
+  }
+})
+
 onMounted(async () => {
   if (isInRoom.value) return
   const messages = authStore.consumeReconnectMessages()
