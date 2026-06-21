@@ -671,9 +671,9 @@ class RoomManager:
         logger.info(f"Game over: room={room.room_id}, reason={reason}, computing winner...")
         game_result = room.game_state.game_result if room.game_state else None
 
-        if game_result in (GameResult.RED_WINS, "RED_WINS"):
+        if game_result in (GameResult.RED_WINS, GameResult.BLACK_RESIGN, GameResult.BLACK_TIMEOUT):
             winner = "red"
-        elif game_result in (GameResult.BLACK_WINS, "BLACK_WINS"):
+        elif game_result in (GameResult.BLACK_WINS, GameResult.RED_RESIGN, GameResult.RED_TIMEOUT):
             winner = "black"
 
         # Save to DB and calculate rating changes
