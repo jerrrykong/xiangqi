@@ -265,6 +265,8 @@ export interface MoveResultData {
   fen: string
   move?: { from_pos: number[]; to_pos: number[] }
   message: string
+  red_remaining_time?: number
+  black_remaining_time?: number
 }
 
 export interface OpponentMoveData {
@@ -272,6 +274,8 @@ export interface OpponentMoveData {
   to_pos: number[] // [row, col]
   fen: string
   captured?: { piece: number; pos: number[] }
+  red_remaining_time?: number
+  black_remaining_time?: number
 }
 
 export interface AIMoveData {
@@ -280,6 +284,8 @@ export interface AIMoveData {
   fen: string
   captured?: { piece: number; pos: number[] }
   think_time_ms: number
+  red_remaining_time?: number
+  black_remaining_time?: number
 }
 
 export interface GameOverData {

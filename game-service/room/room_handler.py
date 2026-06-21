@@ -62,7 +62,7 @@ class RoomHandler:
             current_room = self.room_manager.get_user_room(conn.user_id)
             if current_room and current_room.phase in (RoomPhase.FINISHED, RoomPhase.WAITING):
                 logger.info(f"Auto-leave {current_room.phase.name} room={current_room.room_id} for user={conn.user_id} before creating new room")
-                await self.room_manager.leave_room(current_room, conn.user_id)
+                await self.room_manager.leave_room(current_room, conn.user_id, reason="create_other_room")
                 conn.set_state(ConnectionState.AUTHENTICATED)
                 conn.room_id = None
             else:
@@ -166,7 +166,7 @@ class RoomHandler:
             current_room = self.room_manager.get_user_room(conn.user_id)
             if current_room and current_room.phase in (RoomPhase.FINISHED, RoomPhase.WAITING):
                 logger.info(f"Auto-leave {current_room.phase.name} room={current_room.room_id} for user={conn.user_id} before joining new room")
-                await self.room_manager.leave_room(current_room, conn.user_id)
+                await self.room_manager.leave_room(current_room, conn.user_id, reason="join_other_room")
                 conn.set_state(ConnectionState.AUTHENTICATED)
                 conn.room_id = None
             else:
@@ -251,7 +251,7 @@ class RoomHandler:
             return
 
         # Use room_manager's leave_room which handles all phase logic
-        await self.room_manager.leave_room(room, conn.user_id)
+        await self.room_manager.leave_room(room, conn.user_id, reason="player_request")
 
         conn.set_state(ConnectionState.AUTHENTICATED)
         conn.room_id = None

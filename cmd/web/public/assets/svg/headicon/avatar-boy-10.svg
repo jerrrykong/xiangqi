@@ -1,0 +1,40 @@
+<!-- 玩家头像：10岁可爱男孩，圆脸，大眼，有虎头帽耳 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">
+  <!-- 背景圆 -->
+  <circle cx="28" cy="28" r="27" fill="#FEF9C3" stroke="#CA8A04" stroke-width="1.5"/>
+  <!-- 衣服 -->
+  <path d="M13 54 Q14 44 28 44 Q42 44 43 54Z" fill="#3B82F6"/>
+  <!-- T恤纹样 -->
+  <path d="M24 44 L28 49 L32 44" fill="white" opacity="0.7"/>
+  <!-- 脖子 -->
+  <rect x="24" y="37" width="8" height="7" rx="3" fill="#FDE68A"/>
+  <!-- 头部圆脸 -->
+  <circle cx="28" cy="24" r="13.5" fill="#FDE68A"/>
+  <!-- 卡通短发 -->
+  <path d="M14.5 22 Q14.5 10.5 28 10.5 Q41.5 10.5 41.5 22" fill="#92400E"/>
+  <!-- 发顶翘起 -->
+  <path d="M26 11 Q28 9 30 11" fill="#92400E"/>
+  <!-- 发旋/小翘 -->
+  <path d="M28 10.5 Q29 8.5 31 10.5" stroke="#92400E" stroke-width="1.5" fill="none"/>
+  <!-- 耳朵 -->
+  <ellipse cx="14.5" cy="24.5" rx="2.5" ry="3" fill="#F59E0B"/>
+  <ellipse cx="41.5" cy="24.5" rx="2.5" ry="3" fill="#F59E0B"/>
+  <!-- 眼睛 - 大圆眼，超可爱 -->
+  <circle cx="22.5" cy="24" r="3.5" fill="white"/>
+  <circle cx="33.5" cy="24" r="3.5" fill="white"/>
+  <circle cx="22.8" cy="24.3" r="2.2" fill="#1C1917"/>
+  <circle cx="33.8" cy="24.3" r="2.2" fill="#1C1917"/>
+  <!-- 高光 -->
+  <circle cx="23.5" cy="23.2" r="0.9" fill="white"/>
+  <circle cx="34.5" cy="23.2" r="0.9" fill="white"/>
+  <circle cx="22.1" cy="25" r="0.4" fill="white"/>
+  <circle cx="33.1" cy="25" r="0.4" fill="white"/>
+  <!-- 眉毛 - 弓形可爱 -->
+  <path d="M19.5 20.5 Q22.5 18.5 25.5 20" stroke="#78350F" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M30.5 20 Q33.5 18.5 36.5 20.5" stroke="#78350F" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 腮红 - 圆圆的 -->
+  <circle cx="19" cy="28" r="3.5" fill="#FCA5A5" opacity="0.65"/>
+  <circle cx="37" cy="28" r="3.5" fill="#FCA5A5" opacity="0.65"/>
+  <!-- 嘴巴 - 可爱"W"型 -->
+  <path d="M23 30.5 Q24.5 33 28 31 Q31.5 33 33 30.5" stroke="#C2410C" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

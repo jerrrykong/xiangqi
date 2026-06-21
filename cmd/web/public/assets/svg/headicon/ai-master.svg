@@ -1,0 +1,48 @@
+<!-- AI 大师：50岁男子，有胡须，戴冠（官帽），气度不凡 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">
+  <!-- 背景圆 -->
+  <circle cx="28" cy="28" r="27" fill="#FFFBEB" stroke="#B45309" stroke-width="1.5"/>
+  <!-- 衣服 - 官服（深紫色） -->
+  <path d="M11 54 Q12 43 28 43 Q44 43 45 54Z" fill="#4C1D95"/>
+  <!-- 领口 -->
+  <path d="M22 43 L28 48 L34 43" fill="#7C3AED" stroke="#6D28D9" stroke-width="0.5"/>
+  <!-- 领口纹饰 -->
+  <path d="M23.5 43 L27 46.5 L32.5 43" fill="none" stroke="#C4B5FD" stroke-width="0.8"/>
+  <!-- 脖子 -->
+  <rect x="24.5" y="37" width="7" height="6" rx="2" fill="#E5B97A"/>
+  <!-- 头部 -->
+  <ellipse cx="28" cy="26" rx="12.5" ry="13" fill="#E5B97A"/>
+  <!-- 官帽 - 乌纱帽样式 -->
+  <!-- 帽体 -->
+  <path d="M15 22 Q15 12 28 11 Q41 12 41 22 Q41 25 28 26 Q15 25 15 22Z" fill="#1C1917"/>
+  <!-- 帽翅（官帽两侧翅膀） -->
+  <ellipse cx="10" cy="22" rx="5" ry="2.5" fill="#1C1917"/>
+  <ellipse cx="46" cy="22" rx="5" ry="2.5" fill="#1C1917"/>
+  <!-- 帽正中金纹饰 -->
+  <path d="M22 19 Q28 16 34 19" stroke="#D97706" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <circle cx="28" cy="17" r="2" fill="#D97706"/>
+  <circle cx="28" cy="17" r="1" fill="#FEF3C7"/>
+  <!-- 耳朵 -->
+  <ellipse cx="15.5" cy="26.5" rx="2.5" ry="3.2" fill="#D4A04A"/>
+  <ellipse cx="40.5" cy="26.5" rx="2.5" ry="3.2" fill="#D4A04A"/>
+  <!-- 眼睛 - 威严深邃 -->
+  <ellipse cx="22.5" cy="25" rx="2.8" ry="2" fill="white"/>
+  <ellipse cx="33.5" cy="25" rx="2.8" ry="2" fill="white"/>
+  <circle cx="22.8" cy="25.2" r="1.5" fill="#1C1917"/>
+  <circle cx="33.8" cy="25.2" r="1.5" fill="#1C1917"/>
+  <circle cx="23.3" cy="24.6" r="0.5" fill="white"/>
+  <circle cx="34.3" cy="24.6" r="0.5" fill="white"/>
+  <!-- 眉毛 - 浓重 -->
+  <path d="M19.5 22.5 Q22.5 21 25.5 22" stroke="#292524" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M30.5 22 Q33.5 21 36.5 22.5" stroke="#292524" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- 鼻子 -->
+  <path d="M26 28 Q25.5 30.5 27 31.5 Q28 32 29 31.5 Q30.5 30.5 30 28" stroke="#B45309" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <!-- 胡须 - 短须，两撇八字 -->
+  <path d="M22 33 Q20 33.5 18.5 32.5" stroke="#78716C" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M34 33 Q36 33.5 37.5 32.5" stroke="#78716C" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 嘴巴 -->
+  <path d="M23.5 33 Q28 35.5 32.5 33" stroke="#7C2D12" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 下巴胡须 -->
+  <path d="M24 35 Q28 39 32 35" stroke="#A8A29E" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M26 35.5 Q28 39.5 30 35.5" stroke="#A8A29E" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

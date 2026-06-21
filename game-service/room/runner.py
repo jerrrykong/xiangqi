@@ -63,7 +63,7 @@ class RoomRunner:
                     await asyncio.sleep(0.25)
                     # If no real players, cleanup and exit
                     if mgr._should_delete_room(room):
-                        await mgr._cleanup_room(room)
+                        await mgr._cleanup_room(room, reason="runner_waiting_no_real_players")
                         return
                     continue
 
@@ -76,7 +76,7 @@ class RoomRunner:
                     while room.phase == RoomPhase.READY:
                         # If room emptied, cleanup and exit
                         if mgr._should_delete_room(room):
-                            await mgr._cleanup_room(room)
+                            await mgr._cleanup_room(room, reason="runner_ready_no_real_players")
                             return
                         # short polling interval to react quickly to ready changes
                         await asyncio.sleep(0.05)
@@ -101,7 +101,7 @@ class RoomRunner:
                     while room.phase == RoomPhase.FINISHED:
                         # If room emptied, cleanup and exit
                         if mgr._should_delete_room(room):
-                            await mgr._cleanup_room(room)
+                            await mgr._cleanup_room(room, reason="runner_finished_no_real_players")
                             return
 
                         # Check rematch conditions

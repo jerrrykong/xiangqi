@@ -1,0 +1,63 @@
+<!-- AI 宗师：70岁，白须较长，古人打扮，带发簪，面容慈祥而深沉 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">
+  <!-- 背景圆 -->
+  <circle cx="28" cy="28" r="27" fill="#FDF4FF" stroke="#7E22CE" stroke-width="1.5"/>
+  <!-- 衣服 - 宽袍大袖（深蓝古风） -->
+  <path d="M9 55 Q10 43 28 42 Q46 43 47 55Z" fill="#1E3A5F"/>
+  <!-- 衣领交叉（汉服右衽） -->
+  <path d="M21 42 L28 49 L22 42" fill="#E2D5B8"/>
+  <path d="M35 42 L28 49 L34 42" fill="#D4C5A0"/>
+  <!-- 领缘花纹 -->
+  <path d="M21 42 Q24 44 28 49" stroke="#D97706" stroke-width="0.8" fill="none"/>
+  <!-- 脖子 -->
+  <rect x="24.5" y="36.5" width="7" height="6" rx="2" fill="#D4B896"/>
+  <!-- 头部 - 长脸 -->
+  <ellipse cx="28" cy="25" rx="12" ry="14" fill="#D4B896"/>
+  <!-- 发簪 + 发髻 -->
+  <!-- 发髻（盘发）-->
+  <circle cx="28" cy="11" r="5" fill="#A8A29E"/>
+  <circle cx="28" cy="11" r="3.5" fill="#78716C"/>
+  <!-- 发簪（横插） -->
+  <rect x="21" y="10" width="14" height="1.5" rx="0.75" fill="#D97706"/>
+  <!-- 簪头装饰 -->
+  <circle cx="34.5" cy="10.75" r="2" fill="#D97706"/>
+  <circle cx="34.5" cy="10.75" r="1" fill="#FEF3C7"/>
+  <!-- 两鬓白发 -->
+  <path d="M16 22 Q14 28 15 36" stroke="#E7E5E4" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M40 22 Q42 28 41 36" stroke="#E7E5E4" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M16 22 Q15 27 16 34" stroke="#D4D4D4" stroke-width="1" fill="none"/>
+  <path d="M40 22 Q41 27 40 34" stroke="#D4D4D4" stroke-width="1" fill="none"/>
+  <!-- 耳朵 -->
+  <ellipse cx="16" cy="26" rx="2.5" ry="3.5" fill="#C4956A"/>
+  <ellipse cx="40" cy="26" rx="2.5" ry="3.5" fill="#C4956A"/>
+  <!-- 眼睛 - 慈祥，微眯 -->
+  <path d="M19.5 24 Q22 23 24.5 24" stroke="#1C1917" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <path d="M31.5 24 Q34 23 36.5 24" stroke="#1C1917" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <!-- 眼白 -->
+  <ellipse cx="22" cy="24.5" rx="2.5" ry="1.5" fill="white" opacity="0.6"/>
+  <ellipse cx="34" cy="24.5" rx="2.5" ry="1.5" fill="white" opacity="0.6"/>
+  <!-- 瞳仁 -->
+  <circle cx="22" cy="24.8" r="1.2" fill="#1C1917" opacity="0.9"/>
+  <circle cx="34" cy="24.8" r="1.2" fill="#1C1917" opacity="0.9"/>
+  <!-- 眉毛 - 白眉，较长稍弯 -->
+  <path d="M18.5 21.5 Q22 20 25 21.5" stroke="#E7E5E4" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M31 21.5 Q34 20 37.5 21.5" stroke="#E7E5E4" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- 鼻子 - 有型 -->
+  <path d="M26.5 27.5 Q26 30 27.5 31 Q28 31.5 28.5 31 Q30 30 29.5 27.5" stroke="#A0785A" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <!-- 嘴巴 - 微笑从容 -->
+  <path d="M24 33.5 Q28 36 32 33.5" stroke="#78350F" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 胡须 - 较长白须 -->
+  <!-- 八字胡 -->
+  <path d="M23 33 Q21 32.5 19 31" stroke="#E7E5E4" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <path d="M33 33 Q35 32.5 37 31" stroke="#E7E5E4" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <!-- 下巴长须 -->
+  <path d="M24 36 Q26 41 28 44" stroke="#E7E5E4" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M28 36.5 Q28 42 28 45" stroke="#E7E5E4" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M32 36 Q30 41 28 44" stroke="#E7E5E4" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 发须稀疏线条 -->
+  <path d="M25 36.5 Q24.5 40 25 43" stroke="#D4D4D4" stroke-width="0.8" fill="none"/>
+  <path d="M31 36.5 Q31.5 40 31 43" stroke="#D4D4D4" stroke-width="0.8" fill="none"/>
+  <!-- 法令纹 -->
+  <path d="M21 29 Q20 32 21 35" stroke="#C4956A" stroke-width="0.8" fill="none" opacity="0.6"/>
+  <path d="M35 29 Q36 32 35 35" stroke="#C4956A" stroke-width="0.8" fill="none" opacity="0.6"/>
+</svg>

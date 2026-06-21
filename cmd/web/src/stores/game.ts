@@ -855,6 +855,10 @@ export const useGameStore = defineStore('game', () => {
   // 处理走棋结果 (自己的走棋确认，由服务端 push 触发)
   function handleMoveResult(data: MoveResultData) {
     if (data.success) {
+      // 用服务器权威时间同步双方剩余时间（消除本地计时器漂移）
+      if (data.red_remaining_time != null) redTime.value = data.red_remaining_time
+      if (data.black_remaining_time != null) blackTime.value = data.black_remaining_time
+
       const move = pendingMove
       pendingMove = null
       if (move) {
@@ -869,6 +873,10 @@ export const useGameStore = defineStore('game', () => {
   // 处理对手走棋
   function handleOpponentMove(data: OpponentMoveData) {
     console.log('[Game] Opponent move:', data.from_pos, '->', data.to_pos)
+    // 用服务器权威时间同步双方剩余时间（消除本地计时器漂移）
+    if (data.red_remaining_time != null) redTime.value = data.red_remaining_time
+    if (data.black_remaining_time != null) blackTime.value = data.black_remaining_time
+
     const move = posToMove(data.from_pos, data.to_pos)
     const duration = computeMoveDuration(move)
     applyMoveWithAnimation(move, true) // 对方走棋：先播 pickup 音效
@@ -888,6 +896,10 @@ export const useGameStore = defineStore('game', () => {
   // 处理 AI 走棋
   function handleAIMove(data: AIMoveData) {
     isAIThinking.value = false
+    // 用服务器权威时间同步双方剩余时间（消除本地计时器漂移）
+    if (data.red_remaining_time != null) redTime.value = data.red_remaining_time
+    if (data.black_remaining_time != null) blackTime.value = data.black_remaining_time
+
     const move = posToMove(data.from_pos, data.to_pos)
     applyMoveWithAnimation(move, true) // AI 走棋 = 对方走棋：先播 pickup 音效
   }

@@ -379,15 +379,36 @@ class RoomManager:
 
     # ---- Leave Room ----
 
-    async def leave_room(self, room: Room, user_id: int) -> None:
+    async def leave_room(self, room: Room, user_id: int, reason: str = "explicit_leave") -> None:
         """Handle a player leaving the room.
 
         Rule 5: PLAYING state requires resign first; other states leave directly.
         After leaving, apply Rule 1 (delete room if no real players).
+
+        Args:
+            reason: Why the player is leaving, e.g. "disconnect_timeout",
+                    "player_request", "join_other_room", "enter_matchmaking",
+                    "explicit_leave".
         """
         side = room.get_player_side(user_id)
         if not side:
             return
+
+        # Determine effective reason for PLAYING state
+        effective_reason = reason
+        if room.phase == RoomPhase.PLAYING:
+            effective_reason = f"{reason}→resign_escape"
+
+        # Log player exit with details
+        player = room.get_player(side)
+        is_bot = player.is_bot if player else False
+        username = player.username if player else f"user_{user_id}"
+        logger.info(
+            f"Player leaving room: user_id={user_id}, username={username}, "
+            f"side={side}, is_bot={is_bot}, room_id={room.room_id}, "
+            f"room_type={room.room_type.name}, phase={room.phase.name}, "
+            f"reason={effective_reason}"
+        )
 
         # PLAYING state: must resign first
         if room.phase == RoomPhase.PLAYING:
@@ -406,7 +427,7 @@ class RoomManager:
 
         # Rule 1: delete room if no real players (unless all bots)
         if self._should_delete_room(room):
-            await self._cleanup_room(room)
+            await self._cleanup_room(room, reason=f"no_real_players_after_leave(user={user_id},{effective_reason})")
             return
 
         # Notify remaining connected players
@@ -579,6 +600,8 @@ class RoomManager:
                     "fen": fen,
                     "captured": captured_info,
                     "think_time_ms": think_time_ms,
+                    "red_remaining_time": room.timer.red_remaining,
+                    "black_remaining_time": room.timer.black_remaining,
                 },
             })
 
@@ -631,6 +654,8 @@ class RoomManager:
                         "to_pos": [move.to_row, move.to_col],
                     },
                     "captured": captured_info,
+                    "red_remaining_time": room.timer.red_remaining,
+                    "black_remaining_time": room.timer.black_remaining,
                 },
             })
 
@@ -644,6 +669,8 @@ class RoomManager:
                     "to_pos": [move.to_row, move.to_col],
                     "fen": fen,
                     "captured": captured_info,
+                    "red_remaining_time": room.timer.red_remaining,
+                    "black_remaining_time": room.timer.black_remaining,
                 },
             })
 
@@ -925,13 +952,34 @@ class RoomManager:
 
     # ---- Cleanup ----
 
-    async def _cleanup_room(self, room: Room) -> None:
-        """Delete room and all associated resources (Rule 1)."""
-        logger.info(f"Deleting room={room.room_id}, phase={room.phase.name}, game_count={room.game_count}")
-        # Remove all player associations
+    async def _cleanup_room(self, room: Room, reason: str = "rule1_no_real_players") -> None:
+        """Delete room and all associated resources (Rule 1).
+
+        Args:
+            reason: Why the room is being cleaned up, for logging purposes.
+        """
+        logger.info(f"Cleaning up room={room.room_id}, phase={room.phase.name}, "
+                     f"room_type={room.room_type.name}, game_count={room.game_count}, "
+                     f"reason={reason}")
+
+        # Log each player being removed from the room
         for player in [room.red_player, room.black_player]:
             if player:
                 self.user_rooms.pop(player.user_id, None)
+                logger.info(
+                    f"Player removed during room cleanup: user_id={player.user_id}, "
+                    f"username={player.username}, side={player.side}, "
+                    f"is_bot={player.is_bot}, connected={player.is_connected}, "
+                    f"room_id={room.room_id}, reason={reason}"
+                )
+
+        # Log PvE AI side exit (AI doesn't have a PlayerSession)
+        if room.room_type == RoomType.PVE and room.ai_side is not None:
+            ai_side_name = "red" if room.ai_side == Color.RED else "black"
+            logger.info(
+                f"AI player removed during room cleanup: side={ai_side_name}, "
+                f"room_id={room.room_id}, room_type=PVE, reason={reason}"
+            )
         # Cancel running game task if any
         task = self.tasks.pop(room.room_id, None)
         if task and not task.done():
@@ -1107,8 +1155,8 @@ class RoomManager:
 
             # Rule 1 early check: no real players → delete
             if self._should_delete_room(room):
-                logger.info(f"Room {room.room_id} has no real players, deleting")
-                await self._cleanup_room(room)
+                logger.info(f"Room {room.room_id} has no real players (phase={room.phase.name}), deleting")
+                await self._cleanup_room(room, reason="disconnect_checker_no_real_players")
                 continue
 
             # Check each disconnected real player
@@ -1127,7 +1175,7 @@ class RoomManager:
             try:
                 logger.info(f"Disconnect timeout: user={user_id} in room={room.room_id} "
                            f"(phase={room.phase.name}), auto-leave")
-                await self.leave_room(room, user_id)
+                await self.leave_room(room, user_id, reason="disconnect_timeout")
             except Exception as e:
                 logger.error(f"Failed to handle disconnect timeout for user={user_id}: {e}", exc_info=True)
 
