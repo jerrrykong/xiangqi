@@ -28,12 +28,6 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: '游戏大厅' },
   },
   {
-    path: '/rooms',
-    name: 'RoomList',
-    component: () => import('@/pages/RoomList.vue'),
-    meta: { requiresAuth: true, title: '房间列表' },
-  },
-  {
     path: '/game/:id',
     name: 'Game',
     component: () => import('@/pages/Game.vue'),

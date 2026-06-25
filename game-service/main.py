@@ -410,14 +410,13 @@ async def handle_disconnect(conn: ClientConnection) -> None:
         player.disconnect()
         logger.info(f"Player {conn.user_id} disconnected from room {room.room_id} (phase={room.phase.name})")
 
-        # Notify the opponent in non-PLAYING phases
-        if room.phase != RoomPhase.PLAYING:
-            opponent = room.get_opponent(conn.user_id)
-            if opponent and opponent.is_connected:
-                await opponent.send({
-                    "type": "opponent_disconnected",
-                    "data": {"user_id": conn.user_id},
-                })
+        # Notify the opponent about status change
+        opponent = room.get_opponent(conn.user_id)
+        if opponent and opponent.is_connected:
+            await opponent.send({
+                "type": "opponent_status_change",
+                "data": {"user_id": conn.user_id, "online": False},
+            })
 
 
 # ---- HTTP Endpoints ----

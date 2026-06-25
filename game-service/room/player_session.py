@@ -22,6 +22,7 @@ class PlayerSession:
     nickname: str = ""
     side: str = ""          # red / black
     rating: int = 1500
+    avatar: str = ""        # Avatar identifier (e.g. "sys:avatar-boy-10")
     connected: bool = True
     is_bot: bool = False    # 机器人标记（预留，用于自动对局）
     remaining_time: int = 600  # seconds

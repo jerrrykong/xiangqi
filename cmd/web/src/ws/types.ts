@@ -71,6 +71,7 @@ export const WSRespType = {
   ROOM_UPDATE: 'room_update',
   PLAYER_JOINED: 'player_joined',
   PLAYER_LEFT: 'player_left',
+  OPPONENT_STATUS_CHANGE: 'opponent_status_change',
   // 游戏
   GAME_START: 'game_start',
   MOVE_RESULT: 'move_result',
@@ -109,6 +110,7 @@ export interface AuthResultData {
   user_id?: number
   username?: string
   nickname?: string
+  avatar?: string
   rating?: number
   games_count?: number
   is_admin?: boolean
@@ -124,6 +126,7 @@ export interface AuthTokenResultData {
   user_id?: number
   username?: string
   nickname?: string
+  avatar?: string
   rating?: number
   games_count?: number
   is_admin?: boolean
@@ -196,6 +199,8 @@ export interface RoomCreatedData {
   room_id: string
   room_type: string
   difficulty: number
+  ai_name?: string
+  ai_avatar?: string
 }
 
 export interface RoomListResultData {
@@ -216,6 +221,7 @@ export interface RoomJoinedData {
     user_id: number
     username: string
     nickname: string
+    avatar?: string
     side: string
     rating: number
   }>
@@ -225,9 +231,11 @@ export interface PlayerJoinedData {
   user_id: number
   username: string
   nickname: string
+  avatar?: string
   side: string
   rating: number
   phase?: string // 'ready' when entering ready phase
+  online?: boolean
 }
 
 // ---- Ready / Rematch ----
@@ -253,8 +261,8 @@ export interface OpponentRematchData {
 export interface GameStartData {
   room_id: string
   your_side: string // 'red' | 'black'
-  red_player: { user_id: number; username: string; rating: number }
-  black_player: { user_id: number; username: string; rating: number }
+  red_player: { user_id: number; username: string; nickname?: string; avatar?: string; rating: number; is_bot?: boolean; online?: boolean }
+  black_player: { user_id: number; username: string; nickname?: string; avatar?: string; rating: number; is_bot?: boolean; online?: boolean }
   initial_time: number
   increment: number
   fen: string
@@ -309,13 +317,19 @@ export interface StateSyncData {
   phase: string // 'waiting' | 'ready' | 'playing' | 'finished'
   fen: string
   your_side: string
-  red_player?: { user_id: number; username: string; rating: number }
-  black_player?: { user_id: number; username: string; rating: number }
+  red_player?: { user_id: number; username: string; nickname?: string; avatar?: string; rating: number; is_bot?: boolean; online?: boolean }
+  black_player?: { user_id: number; username: string; nickname?: string; avatar?: string; rating: number; is_bot?: boolean; online?: boolean }
   red_remaining_time: number
   black_remaining_time: number
   moves: Array<{ from_pos: number[]; to_pos: number[] }>
   ready_players?: number[]
   rematch_players?: number[]
+}
+
+/** 对手在线状态变化推送 */
+export interface OpponentStatusChangeData {
+  user_id: number
+  online: boolean
 }
 
 // ---- 匹配响应 ----
@@ -327,7 +341,7 @@ export interface MatchQueuedData {
 
 export interface MatchFoundData {
   room_id: string
-  opponent: { user_id: number; username: string; rating: number }
+  opponent: { user_id: number; username: string; avatar?: string; rating: number }
   your_side: string
 }
 

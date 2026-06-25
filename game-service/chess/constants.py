@@ -103,6 +103,9 @@ class WinReason:
     TIMEOUT = "TIMEOUT"
     AGREEMENT = "AGREEMENT"
     FIFTY_MOVE = "FIFTY_MOVE"
+    THREEFOLD_REPETITION = "THREEFOLD_REPETITION"  # 三次重复局面 → 和棋
+    PERPETUAL_CHECK = "PERPETUAL_CHECK"            # 长将 → 将军方判负
+    PERPETUAL_CHASE = "PERPETUAL_CHASE"            # 长捉 → 捉子方判负
 
 
 # ============ 辅助函数 ============

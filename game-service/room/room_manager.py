@@ -8,7 +8,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from chess.constants import Color, GameResult, WinReason
 from chess.game import ChessGame
@@ -33,6 +33,16 @@ class RoomManager:
 
     Rooms are the sole carrier of a game from creation to finish.
     """
+
+    # AI name and avatar profile based on difficulty level (1-5)
+    AI_PROFILES: Dict[int, Tuple[str, str]] = {
+        1: ("电脑·初学", "sys:ai-easy"),
+        2: ("电脑·普通", "sys:ai-medium"),
+        3: ("电脑·专业", "sys:ai-hard"),
+        4: ("电脑·大师", "sys:ai-master"),
+        5: ("电脑·宗师", "sys:ai-grandmaster"),
+    }
+    AI_PROFILE_DEFAULT = ("电脑·普通", "sys:ai-medium")
 
     def __init__(self, room_repo: RoomRepository, game_repo: GameRepository,
                  elo_repo: EloRepository, user_service: UserService,
@@ -139,6 +149,10 @@ class RoomManager:
                               increment: int = 10) -> Room:
         """Create a PvE room (directly enters PLAYING)."""
         room_id = str(uuid.uuid4())
+
+        # AI name and avatar based on difficulty level
+        ai_name, ai_avatar = self.AI_PROFILES.get(difficulty, self.AI_PROFILE_DEFAULT)
+
         room = Room(
             room_id=room_id,
             room_type=RoomType.PVE,
@@ -147,6 +161,8 @@ class RoomManager:
             difficulty=difficulty,
             initial_time=initial_time,
             increment=increment,
+            ai_name=ai_name,
+            ai_avatar=ai_avatar,
         )
 
         if player_side == "red":
@@ -238,8 +254,10 @@ class RoomManager:
             except Exception as e:
                 logger.warning(f"Failed to persist game start: {e}")
 
-            # RoomRunner (already running) will detect phase change to PLAYING and
-            # call into _run_room to drive the game. Persisted DB state above is sufficient.
+            # Start RoomRunner to drive the game (broadcast game_start, handle moves, etc.)
+            task = asyncio.create_task(RoomRunner(self, room).run())
+            self.tasks[room.room_id] = task
+
             return "started"
 
         return "accepted"
@@ -480,6 +498,25 @@ class RoomManager:
 
             # Broadcast game_start
             fen = board_to_fen(room.game_state.board)
+
+            # Build player info dicts (including AI for PvE rooms)
+            red_info = self._player_info(room.red_player)
+            black_info = self._player_info(room.black_player)
+            if room.room_type == RoomType.PVE and room.ai_side is not None:
+                ai_info = {
+                    "user_id": 0,
+                    "username": room.ai_name,
+                    "nickname": room.ai_name,
+                    "avatar": room.ai_avatar,
+                    "rating": 0,
+                    "is_bot": True,
+                    "online": True,
+                }
+                if room.ai_side == Color.RED:
+                    red_info = ai_info
+                else:
+                    black_info = ai_info
+
             for player in [room.red_player, room.black_player]:
                 if player and player.is_connected:
                     side = player.side
@@ -488,8 +525,8 @@ class RoomManager:
                         "data": {
                             "room_id": room.room_id,
                             "your_side": side,
-                            "red_player": self._player_info(room.red_player),
-                            "black_player": self._player_info(room.black_player),
+                            "red_player": red_info,
+                            "black_player": black_info,
                             "initial_time": room.initial_time,
                             "increment": room.increment,
                             "fen": fen,
@@ -582,7 +619,8 @@ class RoomManager:
             await self._handle_game_over(room, "ai_error")
             return
 
-        room.timer.switch_side()
+        if room.timer:
+            room.timer.switch_side()
 
         fen = board_to_fen(room.game_state.board)
         captured_info = None
@@ -626,7 +664,8 @@ class RoomManager:
             logger.warning(f"Move failed in room {room.room_id}: {error}")
             return
 
-        room.timer.switch_side()
+        if room.timer:
+            room.timer.switch_side()
 
         fen = board_to_fen(room.game_state.board)
 
@@ -1029,6 +1068,14 @@ class RoomManager:
             return "stalemate"
         if win_reason == WinReason.RESIGN:
             return "resign"
+        if win_reason == WinReason.PERPETUAL_CHECK:
+            return "perpetual_check"
+        if win_reason == WinReason.PERPETUAL_CHASE:
+            return "perpetual_chase"
+        if win_reason == WinReason.THREEFOLD_REPETITION:
+            return "threefold_repetition"
+        if win_reason == WinReason.FIFTY_MOVE:
+            return "fifty_move"
         gr = room.game_state.game_result
         if gr in (GameResult.RED_TIMEOUT, GameResult.BLACK_TIMEOUT):
             return "timeout"
@@ -1045,7 +1092,10 @@ class RoomManager:
             "user_id": player.user_id,
             "username": player.username,
             "nickname": player.nickname,
+            "avatar": player.avatar,
             "rating": player.rating,
+            "is_bot": player.is_bot,
+            "online": player.is_bot or player.is_connected,
         }
 
     # ---- State Persistence & Recovery ----
@@ -1311,6 +1361,10 @@ class RoomManager:
                             room.ai_side = Color.RED
                         else:
                             room.ai_side = Color.BLACK
+
+                        # Restore AI name and avatar from difficulty
+                        diff = difficulty or 3
+                        room.ai_name, room.ai_avatar = self.AI_PROFILES.get(diff, self.AI_PROFILE_DEFAULT)
 
                     # Start room runner coroutine (will wait for players to reconnect)
                     task = asyncio.create_task(RoomRunner(self, room).run())

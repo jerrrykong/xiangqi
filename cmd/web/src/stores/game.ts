@@ -103,6 +103,9 @@ export const useGameStore = defineStore('game', () => {
   // 求和请求
   const drawRequestFrom = ref<string | null>(null)
 
+  // 对手在线状态
+  const opponentOnline = ref(true)
+
   // 计时器
   let timerInterval: number | null = null
 
@@ -627,6 +630,10 @@ export const useGameStore = defineStore('game', () => {
       }
       yourColor.value = data.your_side === 'red' ? 0 : 1
 
+      // 设置对手在线状态
+      const opponentPlayer = data.your_side === 'red' ? data.black_player : data.red_player
+      opponentOnline.value = opponentPlayer?.online ?? true
+
       // 调试：验证颜色映射
       console.log('[Game] Color check: your_side=', data.your_side, 'yourColor=', yourColor.value,
         'myColor=', yourColor.value === 0 ? '红方' : '黑方',
@@ -1028,6 +1035,12 @@ export const useGameStore = defineStore('game', () => {
     opponentWantsRematch.value = true
   }
 
+  // 处理对手在线状态变化
+  function handleOpponentStatusChange(data: { user_id: number; online: boolean }) {
+    console.log('[Game] Opponent status change: user_id=', data.user_id, 'online=', data.online)
+    opponentOnline.value = data.online
+  }
+
   // 处理对手离开（回到 WAITING 状态）
   function handlePlayerLeft(data: any) {
     console.log('[Game] Opponent left, phase=', data.phase)
@@ -1083,13 +1096,28 @@ export const useGameStore = defineStore('game', () => {
         roomStore.currentRoom.opponent = {
           userId: data.red_player.user_id,
           username: data.red_player.username,
+          avatar: data.red_player.avatar,
           rating: data.red_player.rating,
+          online: data.red_player.online ?? true,
+        }
+        // AI player info for PvE
+        if (data.red_player.is_bot) {
+          roomStore.currentRoom.aiName = data.red_player.username || data.red_player.nickname || '电脑'
+          roomStore.currentRoom.aiAvatar = data.red_player.avatar || ''
         }
       } else if (data.black_player && data.black_player.user_id !== myUserId) {
         roomStore.currentRoom.opponent = {
           userId: data.black_player.user_id,
           username: data.black_player.username,
+          avatar: data.black_player.avatar,
           rating: data.black_player.rating,
+          online: data.black_player.online ?? true,
+          rating: data.black_player.rating,
+        }
+        // AI player info for PvE
+        if (data.black_player.is_bot) {
+          roomStore.currentRoom.aiName = data.black_player.username || data.black_player.nickname || '电脑'
+          roomStore.currentRoom.aiAvatar = data.black_player.avatar || ''
         }
       }
       roomStore.currentRoom.redReady = !!(data.red_player && data.ready_players?.includes(data.red_player.user_id))
@@ -1118,6 +1146,10 @@ export const useGameStore = defineStore('game', () => {
     phase.value = data.phase || 'waiting'
     showResultDialog.value = false
     drawRequestFrom.value = null
+
+    // 恢复对手在线状态
+    const opponentPlayer = data.your_side === 'red' ? data.black_player : data.red_player
+    opponentOnline.value = opponentPlayer?.online ?? true
     iAmReady.value = false
     opponentReady.value = false
     iWantRematch.value = false
@@ -1253,6 +1285,7 @@ export const useGameStore = defineStore('game', () => {
     checkPosition.value = null
     isAIThinking.value = false
     drawRequestFrom.value = null
+    opponentOnline.value = true
     moveHistory.value = []
     animatingMove.value = null
     phase.value = 'waiting'
@@ -1285,6 +1318,7 @@ export const useGameStore = defineStore('game', () => {
     checkPosition,
     isAIThinking,
     drawRequestFrom,
+    opponentOnline,
     moveHistory,
     animatingMove,
     phase,
@@ -1323,5 +1357,6 @@ export const useGameStore = defineStore('game', () => {
     handleOpponentReady,
     handleOpponentRematch,
     handlePlayerLeft,
+    handleOpponentStatusChange,
   }
 })

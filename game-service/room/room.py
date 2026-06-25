@@ -66,6 +66,8 @@ class Room:
 
     # AI (PvE only)
     ai_side: Optional[Color] = None
+    ai_name: str = ""        # AI display name (e.g. "电脑（困难）")
+    ai_avatar: str = ""      # AI avatar identifier (e.g. "sys:ai-hard")
 
     # Async event for move signaling
     move_event: asyncio.Event = field(default_factory=asyncio.Event)

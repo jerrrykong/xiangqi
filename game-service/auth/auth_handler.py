@@ -76,6 +76,8 @@ class AuthHandler:
         # Register connection
         conn.user_id = user["id"]
         conn.username = user["username"]
+        conn.nickname = user.get("nickname", "")
+        conn.avatar = user.get("avatar", "")
         conn.session_token = session_token
         conn.is_admin = user.get("is_admin", False)
         conn.set_state(ConnectionState.AUTHENTICATED)
@@ -92,6 +94,7 @@ class AuthHandler:
                 "user_id": user["id"],
                 "username": user["username"],
                 "nickname": user.get("nickname", ""),
+                "avatar": user.get("avatar", ""),
                 "rating": user_info.get("rating", 1500),
                 "games_count": user_info.get("games_count", 0),
                 "is_admin": user.get("is_admin", False),
@@ -110,8 +113,9 @@ class AuthHandler:
         username = data.get("username", "")
         password = data.get("password", "")
         nickname = data.get("nickname", username)
+        avatar = data.get("avatar", "")
 
-        user = await self.auth_service.register(username, password, nickname)
+        user = await self.auth_service.register(username, password, nickname, avatar)
         if not user:
             logger.info(f"Register failed: username='{username}' already exists, conn={conn.conn_id}")
             await conn.send({
@@ -132,6 +136,8 @@ class AuthHandler:
 
         conn.user_id = user["id"]
         conn.username = user["username"]
+        conn.nickname = user.get("nickname", "")
+        conn.avatar = user.get("avatar", "")
         conn.session_token = session_token
         conn.is_admin = False
         conn.set_state(ConnectionState.AUTHENTICATED)
@@ -147,6 +153,7 @@ class AuthHandler:
                 "user_id": user["id"],
                 "username": user["username"],
                 "nickname": user.get("nickname", ""),
+                "avatar": user.get("avatar", ""),
                 "rating": 1500,
                 "games_count": 0,
                 "is_admin": False,
@@ -186,6 +193,8 @@ class AuthHandler:
         session_token = str(uuid.uuid4())
         conn.user_id = claims.user_id
         conn.username = claims.username
+        conn.nickname = user.get("nickname", "")
+        conn.avatar = user.get("avatar", "")
         conn.session_token = session_token
         conn.is_admin = claims.is_admin
         conn.set_state(ConnectionState.AUTHENTICATED)
@@ -218,6 +227,7 @@ class AuthHandler:
                 "user_id": claims.user_id,
                 "username": claims.username,
                 "nickname": user.get("nickname", ""),
+                "avatar": user.get("avatar", ""),
                 "rating": user.get("rating", 1500),
                 "games_count": user.get("games_count", 0),
                 "is_admin": claims.is_admin,
@@ -282,6 +292,8 @@ class AuthHandler:
         # Transfer state from original connection
         conn.user_id = original_conn.user_id
         conn.username = original_conn.username
+        conn.nickname = original_conn.nickname
+        conn.avatar = original_conn.avatar
         conn.session_token = str(uuid.uuid4())  # New session token
         conn.is_admin = original_conn.is_admin
 
@@ -352,6 +364,14 @@ class AuthHandler:
             player.reconnect(conn)
             logger.info(f"Reconnect: player {conn.username}(id={conn.user_id}) reconnected to room={room.room_id}, side={side}")
 
+            # Notify the opponent about reconnection
+            opponent = room.get_opponent(conn.user_id)
+            if opponent and opponent.is_connected:
+                await opponent.send({
+                    "type": "opponent_status_change",
+                    "data": {"user_id": conn.user_id, "online": True},
+                })
+
         # Build state_sync data
         fen = board_to_fen(room.game_state.board) if room.game_state else ""
         current_side = "red" if room.game_state and room.game_state.current_player == 0 else "black" if room.game_state else "red"
@@ -371,6 +391,22 @@ class AuthHandler:
             "ready_players": list(room.ready_players),
             "rematch_players": list(room.rematch_players),
         }
+
+        # Include AI player info for PvE rooms
+        if room.room_type == 2 and room.ai_side is not None:  # 2 = RoomType.PVE
+            ai_info = {
+                "user_id": 0,
+                "username": room.ai_name,
+                "nickname": room.ai_name,
+                "avatar": room.ai_avatar,
+                "rating": 0,
+                "is_bot": True,
+                "online": True,
+            }
+            if room.ai_side == 0:  # Color.RED = 0
+                state_data["red_player"] = ai_info
+            else:
+                state_data["black_player"] = ai_info
 
         # Build moves list from game history
         if room.game_state and hasattr(room.game_state, 'history'):
@@ -399,7 +435,10 @@ class AuthHandler:
             "user_id": player.user_id,
             "username": player.username,
             "nickname": player.nickname,
+            "avatar": player.avatar,
             "rating": player.rating,
+            "is_bot": player.is_bot,
+            "online": player.is_bot or player.is_connected,
         }
 
     def _find_connection_by_session(self, session_token: str) -> Optional[ClientConnection]:

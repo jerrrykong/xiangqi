@@ -1,8 +1,7 @@
-"""AI 搜索引擎 - 基于 Minimax + Alpha-Beta 剪枝的传统象棋 AI."""
+"""AI 搜索引擎 - 基于 Minimax + Alpha-Beta 剪枝 + MTD(f) 的中国象棋 AI."""
 from dataclasses import dataclass
-from typing import Optional, List, Tuple, Callable, Dict
+from typing import Optional, List, Tuple, Dict
 import time
-import copy
 import logging
 
 from chess.constants import (
@@ -23,6 +22,7 @@ from chess.piece import Board
 from chess.move_generator import MoveGenerator, LegalMove
 from chess.move_validator import MoveValidator
 from chess.win_checker import WinChecker
+from chess.recorder import ZobristHasher
 
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,126 @@ class MaterialTable:
             idx = row  # row 0 → idx 0
         return float(cls.KNIGHT_POSITIONAL[idx][col])
 
+    # ——— 炮独立位置价值 (不同于车，炮需要炮架，偏好中路和对方阵地) ———
+    # 红方视角, row 0 = 黑方底线, row 9 = 红方底线
+    CANNON_POSITIONAL: List[List[int]] = [
+        [ 6,  4,  0,-10,-12,-10,  0,  4,  6],  # row 0 = 黑方底线
+        [ 2,  2,  0, -4, -6, -4,  0,  2,  2],  # row 1
+        [ 4,  6,  8, 12, 14, 12,  8,  6,  4],  # row 2 (炮初始位置附近)
+        [10, 14, 16, 20, 24, 20, 16, 14, 10],  # row 3 (过河炮)
+        [12, 16, 18, 24, 28, 24, 18, 16, 12],  # row 4 (河口炮最佳)
+        [12, 16, 18, 24, 28, 24, 18, 16, 12],  # row 5 (河口炮最佳)
+        [10, 14, 16, 20, 24, 20, 16, 14, 10],  # row 6
+        [ 8, 10, 12, 16, 18, 16, 12, 10,  8],  # row 7 (红方初始炮位)
+        [ 6,  8,  8, 10, 12, 10,  8,  8,  6],  # row 8
+        [ 4,  6,  6,  8,  8,  8,  6,  6,  4],  # row 9 = 红方底线
+    ]
+
+    @classmethod
+    def get_cannon_positional(cls, col: int, row: int, color: Color) -> float:
+        """获取炮的位置价值"""
+        if color == Color.RED:
+            idx = BOARD_ROWS - 1 - row
+        else:
+            idx = row
+        return float(cls.CANNON_POSITIONAL[idx][col])
+
+    # ——— 车独立位置价值 (保留原有但提升精度) ———
+    # 红方视角
+    ROOK_POSITIONAL_IMPROVED: List[List[int]] = [
+        [14, 14, 12, 18, 16, 18, 12, 14, 14],  # row 0
+        [16, 20, 18, 24, 26, 24, 18, 20, 16],  # row 1
+        [12, 12, 12, 18, 18, 18, 12, 12, 12],  # row 2
+        [12, 18, 16, 22, 22, 22, 16, 18, 12],  # row 3
+        [12, 14, 12, 18, 18, 18, 12, 14, 12],  # row 4
+        [12, 16, 14, 20, 20, 20, 14, 16, 12],  # row 5
+        [ 6, 10,  8, 14, 14, 14,  8, 10,  6],  # row 6
+        [ 4,  8,  6, 14, 12, 14,  6,  8,  4],  # row 7
+        [ 8,  4,  8, 16,  8, 16,  8,  4,  8],  # row 8
+        [-2, 10,  6, 14, 12, 14,  6, 10, -2],  # row 9 (底线车稍弱, 但通路车加分)
+    ]
+
+    @classmethod
+    def get_rook_positional_improved(cls, col: int, row: int, color: Color) -> float:
+        """获取车的改进位置价值"""
+        if color == Color.RED:
+            idx = BOARD_ROWS - 1 - row
+        else:
+            idx = row
+        return float(cls.ROOK_POSITIONAL_IMPROVED[idx][col])
+
+    # ——— 仕/士 位置价值 (仅九宫内有效) ———
+    # 红方视角: row 7-9, col 3-5
+    ADVISOR_POSITIONAL: List[List[int]] = [
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],  # row 0
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0, 20,  0, 20, 0, 0, 0],  # row 7 (红宫顶)
+        [0, 0, 0,  0, 30,  0, 0, 0, 0],  # row 8 (红宫中间, 最佳防守)
+        [0, 0, 0, 15,  0, 15, 0, 0, 0],  # row 9 (红方底线)
+    ]
+
+    @classmethod
+    def get_advisor_positional(cls, col: int, row: int, color: Color) -> float:
+        """获取仕/士的位置价值"""
+        if color == Color.RED:
+            idx = BOARD_ROWS - 1 - row
+        else:
+            idx = row
+        return float(cls.ADVISOR_POSITIONAL[idx][col])
+
+    # ——— 相/象 位置价值 (仅己方半场7个点有效) ———
+    # 红方视角
+    BISHOP_POSITIONAL: List[List[int]] = [
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],  # row 0
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 20,  0, 25,  0,20, 0, 0],  # row 7 (红方河沿)
+        [0, 0,  0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 10,  0, 15,  0,10, 0, 0],  # row 9 (红方底线)
+    ]
+
+    @classmethod
+    def get_bishop_positional(cls, col: int, row: int, color: Color) -> float:
+        """获取相/象的位置价值"""
+        if color == Color.RED:
+            idx = BOARD_ROWS - 1 - row
+        else:
+            idx = row
+        return float(cls.BISHOP_POSITIONAL[idx][col])
+
+    # ——— 帅/将 位置价值 (仅九宫内有效) ———
+    # 红方视角: row 7-9, col 3-5
+    KING_POSITIONAL: List[List[int]] = [
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],  # row 0
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  0,  0,  0, 0, 0, 0],
+        [0, 0, 0,  5, 10,  5, 0, 0, 0],  # row 7 (红宫顶, 不推荐)
+        [0, 0, 0,  8, 15,  8, 0, 0, 0],  # row 8 (红宫一层, 较安全)
+        [0, 0, 0, 10, 20, 10, 0, 0, 0],  # row 9 (红方底线, 默认安全)
+    ]
+
+    @classmethod
+    def get_king_positional(cls, col: int, row: int, color: Color) -> float:
+        """获取帅/将的位置价值"""
+        if color == Color.RED:
+            idx = BOARD_ROWS - 1 - row
+        else:
+            idx = row
+        return float(cls.KING_POSITIONAL[idx][col])
+
 
 @dataclass
 class Evaluator:
@@ -260,8 +380,11 @@ class Evaluator:
     def _get_positional_value(
         self, col: int, row: int, ptype: PieceType, color: Color
     ) -> float:
-        """获取棋子位置价值"""
-        # 依据对局阶段调整位置价值
+        """获取棋子位置价值
+        
+        7类棋子各有独立位置表，参考 vliang-cpp 的设计理念。
+        依据对局阶段调整权重：开局位置价值强，残局子力价值强。
+        """
         phase = getattr(self, '_phase', 0.0)
         opening_factor = 1.0 - phase
 
@@ -269,16 +392,27 @@ class Evaluator:
             base = MaterialTable.get_pawn_positional(col, row, color)
             base = base * (1.0 + 0.3 * phase)
             return base + self._get_pawn_structure_bonus(col, row, color) * (1.0 + 0.2 * phase)
-        elif ptype in (PieceType.ROOK, PieceType.CANNON):
-            base = MaterialTable.get_rook_positional(col, row, color) * 0.5
+        elif ptype == PieceType.ROOK:
+            base = MaterialTable.get_rook_positional_improved(col, row, color)
             base = base * (1.0 + 0.3 * opening_factor)
             return base + self._get_rook_activity_bonus(col, row, color) * (1.0 + 0.2 * opening_factor)
+        elif ptype == PieceType.CANNON:
+            base = MaterialTable.get_cannon_positional(col, row, color)
+            base = base * (1.0 + 0.3 * opening_factor)
+            return base + self._get_rook_activity_bonus(col, row, color) * 0.5 * (1.0 + 0.2 * opening_factor)
         elif ptype == PieceType.KNIGHT:
             base = MaterialTable.get_knight_positional(col, row, color)
             base = base * (1.0 + 0.4 * phase)
             return base + self._get_knight_activity_bonus(col, row, color) + self._get_original_knight_bonus(col, row, color)
+        elif ptype == PieceType.ADVISOR:
+            base = MaterialTable.get_advisor_positional(col, row, color)
+            return base * (1.0 + 0.2 * phase)
+        elif ptype == PieceType.BISHOP:
+            base = MaterialTable.get_bishop_positional(col, row, color)
+            return base * (1.0 + 0.3 * phase)
         elif ptype == PieceType.KING:
-            return self._get_king_position_bonus(col, row, color) * (1.0 + 0.5 * phase)
+            base = MaterialTable.get_king_positional(col, row, color)
+            return base * (1.0 + 0.5 * phase)
         return 0.0
 
     def _get_pawn_structure_bonus(self, col: int, row: int, color: Color) -> float:
@@ -344,14 +478,16 @@ class TTEntry:
 class ChessAI:
     """中国象棋 AI
     
-    使用 Minimax + Alpha-Beta 剪枝搜索算法
+    使用 Minimax + Alpha-Beta 剪枝 + MTD(f) 搜索算法
     
     优化策略:
-    1. Alpha-Beta 剪枝
-    2. 着法排序 (优先搜索吃子着法)
-    3. 置换表 (可选)
-    4. Killer 着法启发
+    1. Alpha-Beta 剪枝 + Null-Move 剪枝
+    2. 着法排序 (MVV-LVA + Killer + History Heuristic)
+    3. 置换表 (Zobrist 哈希键值)
+    4. MTD(f) 零窗口搜索 (深度 ≥ 3)
     5. 迭代深化 (Iterative Deepening)
+    6. 7类棋子独立位置价值表
+    7. 静态清算搜索 (含将军场景全着法保护)
     """
     
     # 评估正向极值
@@ -359,12 +495,15 @@ class ChessAI:
     INFINITY = float('inf')
     # Null-move reduction steps
     NULL_MOVE_REDUCTION = 2
+    # MTD(f) 收敛最大迭代次数
+    MTDF_MAX_ITERATIONS = 15
     
     def __init__(
         self,
         depth: int = 3,
         use_iterative_deepening: bool = True,
         max_time_ms: float = 5000,
+        use_mtdf: bool = True,
     ):
         """初始化 AI
         
@@ -372,10 +511,12 @@ class ChessAI:
             depth: 搜索深度 (默认为3层, 大约可思考 2-3 秒)
             use_iterative_deepening: 是否使用迭代深化
             max_time_ms: 最大思考时间(毫秒)
+            use_mtdf: 是否使用 MTD(f) 搜索 (深度 >= 3 时生效)
         """
         self.depth = depth
         self.use_iterative_deepening = use_iterative_deepening
         self.max_time_ms = max_time_ms
+        self.use_mtdf = use_mtdf
         
         self.evaluator = Evaluator()
         
@@ -384,8 +525,8 @@ class ChessAI:
         self.max_depth_reached = 0
         self.search_time_ms = 0
         
-        # 置换表 (可选, 简单实现)
-        self._ttable: dict[tuple[int, Color, int], TTEntry] = {}
+        # 置换表 (Zobrist 哈希键值 + 深度)
+        self._ttable: dict[tuple[int, int], TTEntry] = {}
         self._time_start = 0.0
         self._time_limit_ms = max_time_ms
         self._time_up = False
@@ -393,6 +534,10 @@ class ChessAI:
         
         # Killer 着法 (每层最多2个)
         self._killer_moves: List[List[Move]] = [[] for _ in range(32)]
+
+        # 搜索路径局面重复追踪 (Zobrist 哈希值 → 出现次数)
+        self._search_rep_counts: Dict[int, int] = {}
+        self._search_rep_threshold: int = 3
     
     def best_move(
         self, board: Board, turn: Color, depth: Optional[int] = None, max_time_ms: Optional[float] = None
@@ -430,6 +575,9 @@ class ChessAI:
         self._pv_move = None
         self._time_start = start_time
         self._time_up = False
+
+        # 重置局面重复追踪
+        self._search_rep_counts = {}
         
         move_generator = MoveGenerator(board)
         win_checker = WinChecker(board)
@@ -455,21 +603,31 @@ class ChessAI:
                 is_checkmate=True,
             )
         
-        # 迭代深化搜索
+        # 迭代深化搜索 (含 MTD(f) 优化)
         best_result = None
         
         if self.use_iterative_deepening:
+            prev_score = 0
             for d in range(1, search_depth + 1):
-                result = self._search_at_depth(
-                    board, turn, d, legal_moves, win_checker, start_time
-                )
+                # 深度 >= 3 且启用 MTD(f) 时，使用 MTD(f) 找分数 + 窄窗口确认
+                if self.use_mtdf and d >= 3:
+                    result = self._mtdf_search_at_depth(
+                        board, turn, d, legal_moves, win_checker, start_time,
+                        prev_score=prev_score,
+                    )
+                else:
+                    result = self._search_at_depth(
+                        board, turn, d, legal_moves, win_checker, start_time
+                    )
                 if result is not None:
                     best_result = result
                     self.max_depth_reached = d
+                    prev_score = result.score
                     _log("debug", "ai_depth_complete",
                          depth=d,
                          best_score=result.score,
-                         nodes=self.nodes_searched)
+                         nodes=self.nodes_searched,
+                         method="mtdf" if (self.use_mtdf and d >= 3) else "ab")
                 # 检查是否超时
                 elapsed = (time.time() - start_time) * 1000
                 if elapsed > self._time_limit_ms:
@@ -594,6 +752,131 @@ class ChessAI:
             is_checkmate=best_is_checkmate,
         )
     
+    def _mtdf_search_at_depth(
+        self,
+        board: Board,
+        turn: Color,
+        depth: int,
+        legal_moves: List[LegalMove],
+        win_checker: WinChecker,
+        start_time: float,
+        prev_score: float = 0,
+    ) -> Optional[SearchResult]:
+        """MTD(f) 搜索: 零窗口收敛找到精确分数，再窄窗口搜索最佳着法
+        
+        MTD(f) 通过反复调用零窗口 Alpha-Beta [beta-1, beta] 来逼近真实值，
+        通常比全窗口搜索减少 10-30% 节点访问量。
+        
+        Args:
+            prev_score: 上一深度的分数，用作初始猜测
+        
+        Returns:
+            SearchResult 或 None (超时)
+        """
+        opponent = Color.BLACK if turn == Color.RED else Color.RED
+
+        # 1. 初始猜测 (利用上一深度结果)
+        guess = prev_score if prev_score else self.evaluator.evaluate(board, turn)
+
+        lower_bound = -self.INFINITY
+        upper_bound = self.INFINITY
+
+        _safe_int = lambda v, sentinel: int(v) if v != float('inf') and v != float('-inf') else sentinel
+
+        _log("debug", "mtdf_start",
+             depth=depth,
+             initial_guess=_safe_int(guess, 0))
+
+        iteration = 0
+        while lower_bound < upper_bound and iteration < self.MTDF_MAX_ITERATIONS:
+            if self._is_time_up():
+                _log("debug", "mtdf_timeout",
+                     iteration=iteration,
+                     lower=_safe_int(lower_bound, -99999),
+                     upper=_safe_int(upper_bound, 99999))
+                break
+
+            beta_window = guess + 1 if guess == lower_bound else guess
+
+            # 零窗口搜索: [beta-1, beta]
+            score = self._negamax(board, turn, depth, beta_window - 1, beta_window, start_time)
+
+            if score < beta_window:
+                upper_bound = score
+            else:
+                lower_bound = score
+
+            guess = score
+            iteration += 1
+
+        _log("debug", "mtdf_converged",
+             iterations=iteration,
+             final_score=_safe_int(lower_bound, 0),
+             lower=_safe_int(lower_bound, -99999),
+             upper=_safe_int(upper_bound, 99999))
+
+        # 2. 收敛后，用窄窗口搜索确认最佳着法
+        # 使用 [score - 100, score + 100] 作为 aspiration window
+        final_alpha = lower_bound - 100
+        final_beta = upper_bound + 100
+
+        sorted_moves = self._sort_moves(legal_moves, board, turn, depth)
+
+        best_move_m = sorted_moves[0].to_move()
+        best_score = -self.INFINITY
+        best_is_checkmate = False
+
+        for lm in sorted_moves:
+            if self._is_time_up():
+                break
+            move = lm.to_move()
+            captured = board.make_move(move)
+            try:
+                new_win_checker = WinChecker(board)
+                if new_win_checker.is_king_exposed(turn):
+                    continue
+
+                game_over = new_win_checker.check_game_over(opponent)
+                if game_over.is_over:
+                    self.nodes_searched += 1
+                    return SearchResult(
+                        move=move, score=self.MATE_SCORE,
+                        nodes_searched=self.nodes_searched, time_ms=0,
+                        depth=depth, is_checkmate=True,
+                    )
+
+                score = -self._negamax(
+                    board, opponent, depth - 1,
+                    -final_beta, -final_alpha, start_time,
+                )
+            finally:
+                board.unmake_move(move, captured)
+            self.nodes_searched += 1
+
+            if score > best_score:
+                best_score = score
+                best_move_m = move
+                if abs(score) >= self.MATE_SCORE - 1000:
+                    best_is_checkmate = True
+
+                # 窗口调整: 如果超出预期范围，重新搜索
+                if score >= final_beta:
+                    final_beta = score + 100
+                if score <= final_alpha:
+                    final_alpha = score - 100
+
+        if best_score <= -self.INFINITY + 1:
+            return None
+
+        return SearchResult(
+            move=best_move_m,
+            score=best_score,
+            nodes_searched=self.nodes_searched,
+            time_ms=0,
+            depth=depth,
+            is_checkmate=best_is_checkmate,
+        )
+
     def _negamax(
         self,
         board: Board,
@@ -603,19 +886,17 @@ class ChessAI:
         beta: float,
         start_time: float,
     ) -> float:
-        """Negamax + Alpha-Beta 剪枝搜索
-        
-        简化版: 不使用置换表
-        """
+        """Negamax + Alpha-Beta 剪枝搜索"""
         # 检查深度或超时
         if depth <= 0:
             return self._quiescence(board, turn, alpha, beta)
 
         if self._is_time_up():
             return alpha
-        
-        board_hash = hash(board)
-        tt_key = (board_hash, turn, depth)
+
+        # Zobrist 哈希键值 (含局面 + 行棋方)
+        zhash = ZobristHasher.compute_hash(board, turn)
+        tt_key = (zhash, depth)
         tt_entry = self._ttable.get(tt_key)
         if tt_entry is not None:
             if tt_entry.depth >= depth:
@@ -629,7 +910,7 @@ class ChessAI:
                     beta = min(beta, tt_entry.score)
                 if alpha >= beta:
                     return tt_entry.score
-        
+
         move_generator = MoveGenerator(board)
         win_checker = WinChecker(board)
         pseudo_moves = move_generator.generate_all_moves(turn)
@@ -637,7 +918,7 @@ class ChessAI:
         move_validator = MoveValidator(board)
         legal_moves = [m for m in pseudo_moves if not move_validator._is_self_check(m.to_move(), turn)]
         opponent = Color.BLACK if turn == Color.RED else Color.RED
-        
+
         # 无合法着法（所有着法均送将 → 被将死或困毙）
         if not legal_moves:
             if win_checker.is_king_exposed(turn):
@@ -646,12 +927,37 @@ class ChessAI:
             else:
                 # 困毙
                 return -self.MATE_SCORE // 2
-        
-        # 局面重复检测 (简化: 深度限制)
-        if depth >= 4:
-            # 简单重复检测
-            pass
 
+        # 局面重复检测: Zobrist 哈希追踪 → 三次重复视为和棋
+        rep_count = self._search_rep_counts.get(zhash, 0) + 1
+        if rep_count >= self._search_rep_threshold:
+            return 0.0
+
+        self._search_rep_counts[zhash] = rep_count
+        result = self.__negamax_body(
+            board, turn, depth, alpha, beta, start_time,
+            move_generator, win_checker, legal_moves, opponent, tt_key,
+        )
+        self._search_rep_counts[zhash] -= 1
+        if self._search_rep_counts[zhash] <= 0:
+            del self._search_rep_counts[zhash]
+        return result
+
+    def __negamax_body(
+        self,
+        board: Board,
+        turn: Color,
+        depth: int,
+        alpha: float,
+        beta: float,
+        start_time: float,
+        move_generator: MoveGenerator,
+        win_checker: WinChecker,
+        legal_moves: list,
+        opponent: Color,
+        tt_key: tuple,
+    ) -> float:
+        """Negamax 搜索体 (不含局面重复追踪的包装部分)。"""
         # Null-move 剪枝 (保守策略):
         # 仅在较大深度、非将军并且非明显残局时尝试。使用 R = NULL_MOVE_REDUCTION。
         try_null_move = False
@@ -685,14 +991,14 @@ class ChessAI:
                         )
                         if score >= beta:
                             return score
-        
+
         # 排序着法
         sorted_moves = self._sort_moves(legal_moves, board, turn, depth)
-        
+
         # Alpha-Beta 剪枝
         best_score = -self.INFINITY
         best_move = sorted_moves[0].to_move()
-        
+
         alpha_orig = alpha
         for lm in sorted_moves:
             if self._is_time_up():
@@ -724,14 +1030,14 @@ class ChessAI:
             finally:
                 board.unmake_move(move, captured)
             self.nodes_searched += 1
-            
+
             if score > best_score:
                 best_score = score
                 best_move = move
-            
+
             if best_score > alpha:
                 alpha = best_score
-            
+
             if alpha >= beta:
                 # Beta 剪枝
                 self._add_killer_move(depth, move)
@@ -748,25 +1054,54 @@ class ChessAI:
         alpha: float,
         beta: float,
     ) -> float:
-        """静态清算搜索，扩展吃子走法直到局面安静"""
+        """静态清算搜索，扩展吃子走法直到局面安静
+        
+        优化: 被将军时保留全部着法 (借鉴 vliang-cpp)，避免误判。
+        """
         if self._is_time_up():
             return self.evaluator.evaluate(board, turn)
 
         stand_pat = self.evaluator.evaluate(board, turn)
-        # Delta cutoff: 如果即便抓到最大价值的子也无法超过 alpha，则剪枝
-        MAX_CAPTURE_VALUE = 900.0
-        if stand_pat + MAX_CAPTURE_VALUE < alpha:
-            return alpha
-        if stand_pat >= beta:
-            return stand_pat
-        if alpha < stand_pat:
-            alpha = stand_pat
 
-        capture_moves = self._generate_capture_moves(board, turn)
-        if not capture_moves:
-            return stand_pat
+        # 检查当前是否被将军
+        win_checker = WinChecker(board)
+        is_in_check = win_checker.is_king_exposed(turn)
 
-        for lm in capture_moves:
+        if not is_in_check:
+            # 未被将军: 仅扩展吃子着法
+            # Delta cutoff
+            MAX_CAPTURE_VALUE = 900.0
+            if stand_pat + MAX_CAPTURE_VALUE < alpha:
+                return alpha
+            if stand_pat >= beta:
+                return stand_pat
+            if alpha < stand_pat:
+                alpha = stand_pat
+
+            capture_moves = self._generate_capture_moves(board, turn)
+            if not capture_moves:
+                return stand_pat
+
+            search_moves = capture_moves
+        else:
+            # 被将军: 必须找到逃避着法，保留全部合法着法
+            if stand_pat < -self.MATE_SCORE // 2:
+                return self.evaluator.evaluate(board, turn)
+
+            # 生成全部合法着法
+            move_generator = MoveGenerator(board)
+            pseudo_moves = move_generator.generate_all_moves(turn)
+            move_validator = MoveValidator(board)
+            search_moves = [m for m in pseudo_moves
+                          if not move_validator._is_self_check(m.to_move(), turn)]
+            if not search_moves:
+                # 无逃避着法 → 被将死
+                return -self.MATE_SCORE + 10
+
+            # 排序: 吃子优先 + MVV-LVA
+            search_moves = self._sort_moves(search_moves, board, turn, 0)
+
+        for lm in search_moves:
             if self._is_time_up():
                 break
             move = lm.to_move()
@@ -800,7 +1135,7 @@ class ChessAI:
 
     def _store_transposition(
         self,
-        key: tuple[int, Color, int],
+        key: tuple,
         score: float,
         depth: int,
         alpha: float,

@@ -64,6 +64,7 @@ class AuthRegisterData:
     username: str = ""
     password: str = ""
     nickname: str = ""
+    avatar: str = ""
 
 
 @dataclass

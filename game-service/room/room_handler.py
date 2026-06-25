@@ -102,6 +102,8 @@ class RoomHandler:
                     "your_side": player_side,
                     "difficulty": difficulty,
                     "status": "playing",
+                    "ai_name": room.ai_name,
+                    "ai_avatar": room.ai_avatar,
                 },
             })
         else:
@@ -143,6 +145,7 @@ class RoomHandler:
                     "user_id": r.red_player.user_id,
                     "username": r.red_player.username,
                     "nickname": r.red_player.nickname,
+                    "avatar": r.red_player.avatar,
                     "rating": r.red_player.rating,
                 } if r.red_player else None,
                 "initial_time": r.initial_time,
@@ -203,10 +206,12 @@ class RoomHandler:
                 "data": {
                     "user_id": conn.user_id,
                     "username": conn.username or "",
-                    "nickname": "",
+                    "nickname": conn.nickname or "",
+                    "avatar": conn.avatar or "",
                     "side": "black",
                     "rating": 1500,
                     "phase": "ready",
+                    "online": True,
                 },
             })
 
@@ -422,10 +427,15 @@ class RoomHandler:
 
     def _make_player_session(self, conn: ClientConnection, side: str) -> PlayerSession:
         """Create a PlayerSession from a connection."""
+        # Get avatar from connection's cached user info (set during auth)
+        avatar = getattr(conn, 'avatar', '') or ''
+        nickname = getattr(conn, 'nickname', '') or ''
         return PlayerSession(
             user_id=conn.user_id,
             username=conn.username or "",
+            nickname=nickname,
             side=side,
+            avatar=avatar,
             rating=1500,  # Will be updated from DB
             _conn=conn,
         )

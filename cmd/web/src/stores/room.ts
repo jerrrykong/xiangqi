@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { PlayerJoinedData, RoomListResultData, GameStartData } from '@/ws/types'
+import type { PlayerJoinedData, RoomListResultData, GameStartData, OpponentStatusChangeData } from '@/ws/types'
 import { wsClient } from '@/ws/client'
 import { WSMsgType } from '@/ws/types'
 import { useAuthStore } from './auth'
@@ -18,9 +18,14 @@ export const useRoomStore = defineStore('room', () => {
     opponent?: {
       userId: number
       username: string
+      nickname?: string
+      avatar?: string
       rating?: number
+      online?: boolean
     }
     difficulty?: number // PvE 难度
+    aiName?: string     // AI 名称（PvE）
+    aiAvatar?: string   // AI 头像（PvE）
     status?: string
     redReady?: boolean
     blackReady?: boolean
@@ -58,6 +63,8 @@ export const useRoomStore = defineStore('room', () => {
         phase,
         yourSide: result.your_side || 'red', // 创建者默认红方
         difficulty,
+        aiName: result.ai_name,
+        aiAvatar: result.ai_avatar,
       }
       console.log('[Room] Room created:', result.room_id, 'phase=', phase, 'side=', currentRoom.value.yourSide)
       // 同步 gameStore.phase
@@ -83,7 +90,7 @@ export const useRoomStore = defineStore('room', () => {
       const userId = authStore.user?.user_id
 
       let yourSide: 'red' | 'black' = 'black'
-      let opponent: { userId: number; username: string; rating?: number } | undefined
+      let opponent: { userId: number; username: string; nickname?: string; avatar?: string; rating?: number } | undefined
 
       if (result.players) {
         const validPlayers = result.players.filter((p: any) => p != null)
@@ -94,6 +101,8 @@ export const useRoomStore = defineStore('room', () => {
           opponent = {
             userId: other.user_id,
             username: other.username,
+            nickname: other.nickname,
+            avatar: other.avatar,
             rating: other.rating,
           }
         }
@@ -140,7 +149,9 @@ export const useRoomStore = defineStore('room', () => {
     roomId: string
     roomType?: string
     yourSide: 'red' | 'black'
-    opponent?: { userId: number; username: string; rating?: number }
+    opponent?: { userId: number; username: string; nickname?: string; avatar?: string; rating?: number }
+    aiName?: string
+    aiAvatar?: string
     phase?: string
   }) {
     const phase = room.phase || 'waiting'
@@ -150,6 +161,8 @@ export const useRoomStore = defineStore('room', () => {
       phase,
       yourSide: room.yourSide,
       opponent: room.opponent,
+      aiName: room.aiName,
+      aiAvatar: room.aiAvatar,
       status: phase,
       gameStarted: phase === 'playing',
       redReady: false,
@@ -168,15 +181,15 @@ export const useRoomStore = defineStore('room', () => {
     black_ready?: boolean
     game_ws_url?: string
     your_side?: string
-    red_user?: { user_id: number; username: string; rating?: number }
-    black_user?: { user_id: number; username: string; rating?: number }
+    red_user?: { user_id: number; username: string; nickname?: string; rating?: number }
+    black_user?: { user_id: number; username: string; nickname?: string; rating?: number }
   }) {
     const phase = detail.status || 'waiting'
     const myUserId = useAuthStore().user?.user_id
     const opponent = detail.red_user && detail.red_user.user_id !== myUserId
-      ? { userId: detail.red_user.user_id, username: detail.red_user.username, rating: detail.red_user.rating }
+      ? { userId: detail.red_user.user_id, username: detail.red_user.username, nickname: detail.red_user.nickname, rating: detail.red_user.rating }
       : detail.black_user && detail.black_user.user_id !== myUserId
-        ? { userId: detail.black_user.user_id, username: detail.black_user.username, rating: detail.black_user.rating }
+        ? { userId: detail.black_user.user_id, username: detail.black_user.username, nickname: detail.black_user.nickname, rating: detail.black_user.rating }
         : undefined
 
     currentRoom.value = {
@@ -257,7 +270,10 @@ export const useRoomStore = defineStore('room', () => {
     currentRoom.value.opponent = {
       userId: data.user_id,
       username: data.username,
+      nickname: data.nickname,
+      avatar: data.avatar,
       rating: data.rating,
+      online: data.online ?? true,
     }
     // 对手加入后进入 ready 阶段
     if (data.phase === 'ready') {
@@ -295,13 +311,19 @@ export const useRoomStore = defineStore('room', () => {
       currentRoom.value.opponent = {
         userId: data.red_player.user_id,
         username: data.red_player.username,
+        nickname: data.red_player.nickname,
+        avatar: data.red_player.avatar,
         rating: data.red_player.rating,
+        online: data.red_player.online ?? true,
       }
     } else if (data.black_player && data.black_player.user_id !== myUserId) {
       currentRoom.value.opponent = {
         userId: data.black_player.user_id,
         username: data.black_player.username,
+        nickname: data.black_player.nickname,
+        avatar: data.black_player.avatar,
         rating: data.black_player.rating,
+        online: data.black_player.online ?? true,
       }
     }
   }
@@ -317,6 +339,17 @@ export const useRoomStore = defineStore('room', () => {
     const authStore = useAuthStore()
     if (authStore.authState === 'in_room') {
       authStore.setAuthState('authenticated')
+    }
+  }
+
+  // 处理对手在线状态变化
+  function handleOpponentStatusChange(data: OpponentStatusChangeData) {
+    if (!currentRoom.value) return
+    console.log('[Room] Opponent status change: user_id=', data.user_id, 'online=', data.online)
+    // AI 总是在线，忽略其状态变化
+    if (currentRoom.value.roomType === 'pve') return
+    if (currentRoom.value.opponent) {
+      currentRoom.value.opponent.online = data.online
     }
   }
 
@@ -362,5 +395,6 @@ export const useRoomStore = defineStore('room', () => {
     handleRoomListResult,
     handleRoomRemoved,
     handleRoomUpdate,
+    handleOpponentStatusChange,
   }
 })

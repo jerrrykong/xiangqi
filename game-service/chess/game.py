@@ -20,7 +20,7 @@ from chess.move import Move
 from .piece import Board, board_to_fen
 from .move_generator import MoveGenerator, LegalMove
 from .move_validator import MoveValidator
-from .win_checker import WinChecker
+from .win_checker import WinChecker, GameOverResult
 
 
 class GamePhase(Enum):
@@ -137,6 +137,17 @@ class ChessGame:
         # 着法计数器 (用于判定是否将军)
         self._last_move_was_check = False
 
+        # === 局面重复与长将/长捉检测 ===
+        # 局面 FEN 字符串 → 出现次数 (用于三次重复检测)
+        self._initial_fen: str = board_to_fen(self._board, self.turn)
+        self._position_counts: Dict[str, int] = {self._initial_fen: 1}
+        # 连续将军计数 (按颜色)
+        self._consecutive_checks_red: int = 0
+        self._consecutive_checks_black: int = 0
+        # 检测阈值: 同一局面出现 >= 此值启动检测
+        self._REPETITION_THRESHOLD: int = 3
+        self._PERPETUAL_CHECK_THRESHOLD: int = 3
+
     def _init_validators(self) -> None:
         """重新初始化验证器 (使用当前 _board)"""
         self.move_generator = MoveGenerator(self._board)
@@ -184,6 +195,11 @@ class ChessGame:
         if self.phase != GamePhase.NOT_STARTED:
             return False
         self.phase = GamePhase.PLAYING
+        # 重置局面重复检测状态
+        self._initial_fen = board_to_fen(self._board, self.turn)
+        self._position_counts = {self._initial_fen: 1}
+        self._consecutive_checks_red = 0
+        self._consecutive_checks_black = 0
         return True
 
     def switch_turn(self) -> None:
@@ -256,10 +272,37 @@ class ChessGame:
         game_over = self.win_checker.check_game_over(opponent)
         if game_over.is_over:
             self._handle_game_over(game_over)
-        
+
         # 切换回合
         if not self.is_game_over:
             self.switch_turn()
+
+        # 更新局面 FEN 并检测局面重复 / 长将 / 长捉
+        if not self.is_game_over:
+            current_fen = board_to_fen(self._board, self.turn)
+            count = self._position_counts.get(current_fen, 0) + 1
+            self._position_counts[current_fen] = count
+
+            # 更新连续将军计数
+            if is_check:
+                if current_player == Color.RED:
+                    self._consecutive_checks_red += 1
+                    self._consecutive_checks_black = 0
+                else:
+                    self._consecutive_checks_black += 1
+                    self._consecutive_checks_red = 0
+            else:
+                self._consecutive_checks_red = 0
+                self._consecutive_checks_black = 0
+
+            # 检测三次重复局面 / 长将
+            if count >= self._REPETITION_THRESHOLD:
+                rep_result = self._detect_repetition_violation(
+                    is_check=is_check,
+                    current_player=current_player,
+                )
+                if rep_result.is_over:
+                    self._handle_game_over(rep_result)
         
         return True, ""
 
@@ -334,6 +377,60 @@ class ChessGame:
         player = color if color is not None else self.current_player
         return self.win_checker.is_stalemate(player)
 
+    # ==================== 重复局面 / 长将 / 长捉 ====================
+
+    def _detect_repetition_violation(
+        self, is_check: bool, current_player: Color,
+    ) -> GameOverResult:
+        """检测局面重复导致的违规或和棋。
+
+        规则:
+        1. 三次重复 + 长将 → 将军方判负
+        2. 三次重复 + 长捉 → 捉子方判负
+        3. 三次重复 (无长将/长捉) → 和棋
+
+        Args:
+            is_check: 当前着法是否将军
+            current_player: 当前执行着法的玩家
+
+        Returns:
+            GameOverResult
+        """
+        # 长将: 连续将军 ≥ 阈值 且 同一局面出现 ≥ 阈值 → 将军方判负
+        if is_check:
+            if current_player == Color.RED and self._consecutive_checks_red >= self._PERPETUAL_CHECK_THRESHOLD:
+                return GameOverResult(
+                    is_over=True,
+                    winner=Color.BLACK,
+                    result=GameResult.BLACK_WINS,
+                    reason=WinReason.PERPETUAL_CHECK,
+                )
+            elif current_player == Color.BLACK and self._consecutive_checks_black >= self._PERPETUAL_CHECK_THRESHOLD:
+                return GameOverResult(
+                    is_over=True,
+                    winner=Color.RED,
+                    result=GameResult.RED_WINS,
+                    reason=WinReason.PERPETUAL_CHECK,
+                )
+
+        # TODO: 长捉检测 — 后续通过局面差异分析补充
+
+        # 三次重复无违规 → 和棋
+        return GameOverResult(
+            is_over=True,
+            winner=None,
+            result=GameResult.DRAW,
+            reason=WinReason.THREEFOLD_REPETITION,
+        )
+
+    def get_position_counts(self) -> Dict[str, int]:
+        """返回当前局面 FEN 计数 (供调试/AI 查询)。"""
+        return dict(self._position_counts)
+
+    def get_current_fen_key(self) -> str:
+        """返回当前局面的 FEN 键 (用于重复检测)。"""
+        return board_to_fen(self._board, self.turn)
+
     # ==================== 悔棋功能 ====================
 
     def undo(self, times: int = 1) -> bool:
@@ -349,11 +446,45 @@ class ChessGame:
             return False
         
         for _ in range(times):
-            record = self.history.pop()
-            # 恢复棋盘
-            self.board = Board(record.board_before)
-            # 恢复回合
-            self.turn = record.player
+            self.history.pop()
+        
+        # 恢复棋盘到最后一着后的状态，或初始状态
+        if self.history:
+            last_record = self.history[-1]
+            self.board = Board(last_record.board_after)
+            # 回合: 上一着的下一位
+            self.turn = Color.BLACK if last_record.player == Color.RED else Color.RED
+            self._last_move_was_check = last_record.is_check
+        else:
+            self.board = Board()
+            self.turn = Color.RED
+            self._last_move_was_check = False
+        
+        # 重建局面计数
+        self._initial_fen = board_to_fen(self._board, self.turn)
+        self._position_counts = {self._initial_fen: 1}
+        self._consecutive_checks_red = 0
+        self._consecutive_checks_black = 0
+
+        # 从历史记录重建局面计数 (着法后的局面, 包含回合)
+        for record in self.history:
+            board_after_move = Board(record.board_after)
+            next_turn = Color.BLACK if record.player == Color.RED else Color.RED
+            fen_after = board_to_fen(board_after_move, next_turn)
+            count = self._position_counts.get(fen_after, 0) + 1
+            self._position_counts[fen_after] = count
+
+            # 重建连续将军计数
+            if record.is_check:
+                if record.player == Color.RED:
+                    self._consecutive_checks_red += 1
+                    self._consecutive_checks_black = 0
+                else:
+                    self._consecutive_checks_black += 1
+                    self._consecutive_checks_red = 0
+            else:
+                self._consecutive_checks_red = 0
+                self._consecutive_checks_black = 0
         
         # 更新辅助类
         self.move_generator = MoveGenerator(self.board)

@@ -3,7 +3,7 @@
  * 单列居中布局 + 自定义 overlay 弹窗
  */
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
@@ -23,11 +23,24 @@ const gameStore = useGameStore()
 const rankings = ref<any[]>([])
 const history = ref<any[]>([])
 
+/** 解析头像引用，返回 SVG 路径；非系统头像或无头像返回空 */
+const avatarImgSrc = computed(() => {
+  const avatar = authStore.user?.avatar
+  if (!avatar) return ''
+  if (avatar.startsWith('sys:')) {
+    return baseUrl + `assets/svg/headicon/${avatar.slice(4)}.svg`
+  }
+  return ''
+})
+
+/** 头像 fallback 文字 */
+const avatarText = computed(() => {
+  return (authStore.user?.nickname || authStore.user?.username || '?')[0]
+})
+
 /** 用户是否处于房间中 */
 const isInRoom = computed(() => authStore.authState === 'in_room')
 
-/** PvP 等待状态 */
-const isWaitingForOpponent = ref(isInRoom.value)
 const isCreatingRoom = ref(false)
 
 /** PvE 难度选择 */
@@ -35,7 +48,7 @@ const showPvEDialog = ref(false)
 const selectedDifficulty = ref(3)
 
 /** Overlay 弹窗 */
-const activeOverlay = ref<'' | 'rankings' | 'history'>('')
+const activeOverlay = ref<'' | 'rankings' | 'history' | 'matchmaking' | 'joinRoom'>('')
 
 /** 胜率 */
 const winRate = computed(() => {
@@ -46,18 +59,60 @@ const winRate = computed(() => {
   return Math.round((wins / games) * 100)
 })
 
-/** 监听游戏开始 */
+// ===== 快速匹配：等待计时 =====
+const matchStartTime = ref<number>(0)
+const matchElapsed = ref('00:00')
+let matchTimerHandle: ReturnType<typeof setInterval> | null = null
+
+/** 格式化经过秒数为 mm:ss */
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const m = String(Math.floor(totalSec / 60)).padStart(2, '0')
+  const s = String(totalSec % 60).padStart(2, '0')
+  return `${m}:${s}`
+}
+
+function startMatchTimer() {
+  matchStartTime.value = Date.now()
+  matchTimerHandle = setInterval(() => {
+    matchElapsed.value = formatElapsed(Date.now() - matchStartTime.value)
+  }, 1000)
+  matchElapsed.value = '00:00'
+}
+
+function stopMatchTimer() {
+  if (matchTimerHandle) {
+    clearInterval(matchTimerHandle)
+    matchTimerHandle = null
+  }
+}
+
+// ===== 加入房间 =====
+const availableRooms = ref<any[]>([])
+const selectedRoomId = ref<string>('')
+const isJoiningRoom = ref(false)
+const isFetchingRooms = ref(false)
+
+/** 监听匹配成功 → 导航到对局界面 */
 watch(() => gameStore.isGameStarted, (val) => {
   if (val && roomStore.currentRoom) {
-    isWaitingForOpponent.value = false
+    stopMatchTimer()
+    activeOverlay.value = ''
     router.push(`/game/${roomStore.currentRoom.roomId}`)
+  }
+})
+
+/** 监听匹配离开确认（服务端推送） */
+watch(() => matchStore.isMatchmaking, (val) => {
+  if (!val && activeOverlay.value === 'matchmaking') {
+    stopMatchTimer()
+    activeOverlay.value = ''
   }
 })
 
 /** 监听 WS 重连成功后刷新数据 */
 watch(() => wsClient.connectionState.value, (newState, oldState) => {
   if (newState === 'connected' && oldState === 'disconnected') {
-    // 重连成功：刷新排行榜和历史数据
     fetchRankings()
     fetchHistory()
   }
@@ -70,6 +125,10 @@ onMounted(async () => {
     await showConfirm(messages.join('\n'), '提示', { confirmText: '确定', type: 'warning' })
   }
   await Promise.all([fetchRankings(), fetchHistory()])
+})
+
+onUnmounted(() => {
+  stopMatchTimer()
 })
 
 async function fetchRankings() {
@@ -95,8 +154,7 @@ async function handleCreateRoom() {
   isCreatingRoom.value = true
   try {
     await roomStore.createRoom('pvp')
-    isWaitingForOpponent.value = true
-    showToast('房间创建成功，等待对手加入...', 'success')
+    router.push(`/game/${roomStore.currentRoom!.roomId}`)
   } catch (error: any) {
     showToast(error.message || '创建房间失败', 'error')
   } finally {
@@ -115,17 +173,19 @@ async function handleCreatePvERoom() {
   }
 }
 
-/** 快速匹配 */
+/** 快速匹配 — 打开全屏匹配 overlay */
 async function handleMatch() {
+  activeOverlay.value = 'matchmaking'
   try {
     await matchStore.joinMatch('pvp')
-    showToast('正在匹配对手...', 'info')
+    startMatchTimer()
   } catch (error: any) {
+    activeOverlay.value = ''
     showToast(error.message || '匹配失败', 'error')
   }
 }
 
-/** 取消匹配 */
+/** 取消匹配 — 等待服务端确认后自动关闭 overlay（通过 watcher） */
 async function handleCancelMatch() {
   try {
     await matchStore.leaveMatch()
@@ -135,14 +195,36 @@ async function handleCancelMatch() {
   }
 }
 
-/** 取消等待 */
-async function handleCancelWaiting() {
+/** 打开加入房间 overlay */
+async function handleOpenJoinRoom() {
+  activeOverlay.value = 'joinRoom'
+  selectedRoomId.value = ''
+  isFetchingRooms.value = true
   try {
-    await roomStore.leaveRoom()
-    isWaitingForOpponent.value = false
-    showToast('已离开房间', 'info')
+    await roomStore.fetchRoomList()
+    availableRooms.value = roomStore.roomList
+  } catch (error) {
+    console.error('Failed to fetch room list:', error)
+  } finally {
+    isFetchingRooms.value = false
+  }
+}
+
+/** 确认加入选中房间 */
+async function handleJoinSelectedRoom() {
+  if (!selectedRoomId.value) {
+    showToast('请先选择一个房间', 'warning')
+    return
+  }
+  isJoiningRoom.value = true
+  try {
+    await roomStore.joinRoom(selectedRoomId.value)
+    activeOverlay.value = ''
+    router.push(`/game/${roomStore.currentRoom!.roomId}`)
   } catch (error: any) {
-    showToast(error.message || '离开房间失败', 'error')
+    showToast(error.message || '加入房间失败', 'error')
+  } finally {
+    isJoiningRoom.value = false
   }
 }
 
@@ -212,8 +294,11 @@ function getResultClass(result: string): string {
       <!-- 玩家信息卡 -->
       <div class="lobby-player-card">
         <div class="avatar">
-          <img :src="baseUrl + 'assets/svg/ui/icon-user.svg'" alt="" class="avatar-icon" />
-          <span class="avatar-text">{{ (authStore.user?.nickname || authStore.user?.username || '?')[0] }}</span>
+          <img v-if="avatarImgSrc" :src="avatarImgSrc" alt="" class="avatar-img" />
+          <template v-else>
+            <img :src="baseUrl + 'assets/svg/ui/icon-user.svg'" alt="" class="avatar-icon" />
+            <span class="avatar-text">{{ avatarText }}</span>
+          </template>
         </div>
         <div class="player-detail">
           <div class="player-name">{{ authStore.user?.nickname || authStore.user?.username }}</div>
@@ -226,15 +311,20 @@ function getResultClass(result: string): string {
       </div>
 
       <!-- 操作按钮区 -->
-      <div v-if="!isInRoom && !isWaitingForOpponent" class="lobby-actions">
+      <div v-if="!isInRoom" class="lobby-actions">
         <button class="lobby-action-btn" @click="handleCreateRoom" :disabled="isCreatingRoom">
           <img :src="baseUrl + 'assets/svg/ui/icon-sword.svg'" alt="" class="btn-icon-w" />
-          <span class="btn-label">{{ isCreatingRoom ? '创建中...' : '新对局' }}</span>
+          <span class="btn-label">{{ isCreatingRoom ? '创建中...' : '开始对局' }}</span>
+        </button>
+
+        <button class="lobby-action-btn" @click="handleOpenJoinRoom">
+          <img :src="baseUrl + 'assets/svg/ui/icon-plus.svg'" alt="" class="btn-icon-w" />
+          <span class="btn-label">加入对局</span>
         </button>
 
         <button class="lobby-action-btn" @click="handleMatch" :disabled="matchStore.isMatchmaking">
           <img :src="baseUrl + 'assets/svg/ui/icon-refresh.svg'" alt="" class="btn-icon-w" />
-          <span class="btn-label">{{ matchStore.isMatchmaking ? '匹配中...' : '快速匹配' }}</span>
+          <span class="btn-label">快速匹配</span>
         </button>
 
         <button class="lobby-action-btn" @click="showPvEDialog = true">
@@ -242,30 +332,10 @@ function getResultClass(result: string): string {
           <span class="btn-label">人机对弈</span>
         </button>
 
-        <button class="lobby-action-btn" @click="router.push('/rooms')">
-          <img :src="baseUrl + 'assets/svg/ui/icon-plus.svg'" alt="" class="btn-icon-w" />
-          <span class="btn-label">房间列表</span>
-        </button>
-
         <button class="lobby-action-btn" @click="goToSettings">
           <img :src="baseUrl + 'assets/svg/ui/icon-settings.svg'" alt="" class="btn-icon-w" />
           <span class="btn-label">系统设置</span>
         </button>
-      </div>
-
-      <!-- 匹配中状态 -->
-      <div v-if="matchStore.isMatchmaking" class="waiting-card card">
-        <div class="loading-spinner"></div>
-        <p>匹配中... (约{{ matchStore.estimatedWait }}秒)</p>
-        <button class="btn btn-secondary btn--block" @click="handleCancelMatch">取消匹配</button>
-      </div>
-
-      <!-- 等待对手 -->
-      <div v-if="isWaitingForOpponent || isInRoom" class="waiting-card card">
-        <h3>等待对手加入</h3>
-        <p class="text-muted">房间号: {{ roomStore.currentRoom?.roomId?.slice(0, 8) }}</p>
-        <div class="loading-spinner"></div>
-        <button class="btn btn-danger btn--block" @click="handleCancelWaiting">取消等待</button>
       </div>
 
       <!-- 底部快捷链接 -->
@@ -284,6 +354,89 @@ function getResultClass(result: string): string {
         </button>
       </div>
     </main>
+
+    <!-- 快速匹配全屏 overlay -->
+    <Transition name="overlay">
+      <div v-if="activeOverlay === 'matchmaking'" class="lobby-overlay">
+        <div class="match-overlay-content">
+          <div class="match-spinner"></div>
+          <h3 class="match-title">正在查找对手中......</h3>
+          <div class="match-timer">{{ matchElapsed }}</div>
+          <button
+            class="btn btn-secondary match-cancel-btn"
+            :disabled="!matchStore.isMatchmaking"
+            @click="handleCancelMatch"
+          >
+            取消匹配
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 加入房间全屏 overlay -->
+    <Transition name="overlay">
+      <div v-if="activeOverlay === 'joinRoom'" class="lobby-overlay">
+        <div class="overlay-header">
+          <h3 class="overlay-title">
+            <img :src="baseUrl + 'assets/svg/ui/icon-plus.svg'" alt="" class="title-icon" />
+            加入房间
+          </h3>
+          <button class="overlay-close" @click="activeOverlay = ''">
+            <img :src="baseUrl + 'assets/svg/ui/icon-close.svg'" alt="关闭" />
+          </button>
+        </div>
+        <div class="overlay-body room-list-body">
+          <!-- 加载中 -->
+          <div v-if="isFetchingRooms" class="room-list-loading">
+            <div class="loading-spinner"></div>
+            <span>正在获取房间列表...</span>
+          </div>
+          <!-- 房间列表 -->
+          <div v-else-if="availableRooms.length > 0" class="room-list-grid">
+            <button
+              v-for="room in availableRooms"
+              :key="room.room_id"
+              class="room-card"
+              :class="{ selected: selectedRoomId === room.room_id }"
+              @click="selectedRoomId = room.room_id"
+            >
+              <div class="room-card-header">
+                <span class="room-card-id">#{{ room.room_id.slice(0, 8) }}</span>
+                <span class="room-card-phase" :class="room.phase">{{ room.phase === 'waiting' ? '等待中' : room.phase === 'ready' ? '已就绪' : '对局中' }}</span>
+              </div>
+              <div class="room-card-players">
+                <div v-if="room.red_player" class="room-card-player">
+                  <span class="player-side red">红</span>
+                  <span class="player-name">{{ room.red_player.username }}</span>
+                  <span class="player-rating">{{ room.red_player.rating }}</span>
+                </div>
+                <div v-else class="room-card-player empty">
+                  <span class="player-side red">红</span>
+                  <span class="player-name">空位</span>
+                </div>
+                <div v-if="room.black_player" class="room-card-player">
+                  <span class="player-side black">黑</span>
+                  <span class="player-name">{{ room.black_player.username }}</span>
+                  <span class="player-rating">{{ room.black_player.rating }}</span>
+                </div>
+                <div v-else class="room-card-player empty">
+                  <span class="player-side black">黑</span>
+                  <span class="player-name">空位</span>
+                </div>
+              </div>
+            </button>
+          </div>
+          <!-- 空列表 -->
+          <div v-else class="empty-hint">暂无可加入的房间</div>
+        </div>
+        <div class="overlay-footer">
+          <button class="btn btn-secondary" @click="activeOverlay = ''">取消</button>
+          <button class="btn btn-primary" :disabled="!selectedRoomId || isJoiningRoom" @click="handleJoinSelectedRoom">
+            {{ isJoiningRoom ? '加入中...' : '确定' }}
+          </button>
+        </div>
+      </div>
+    </Transition>
 
     <!-- PvE 难度选择弹窗 -->
     <Transition name="overlay">
@@ -462,6 +615,13 @@ function getResultClass(result: string): string {
   color: var(--color-text-tertiary);
 }
 
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .win-rate {
   color: var(--color-success);
   font-weight: var(--weight-semibold);
@@ -520,18 +680,59 @@ function getResultClass(result: string): string {
   color: var(--color-wood);
 }
 
-/* 等待/匹配卡片 */
-.waiting-card {
-  text-align: center;
+/* 匹配全屏 overlay */
+.match-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: var(--space-5);
+  padding: var(--space-8);
+}
+
+.match-spinner {
+  width: 56px;
+  height: 56px;
+  border: 4px solid var(--color-wood-light);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.match-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-primary);
+}
+
+.match-timer {
+  font-family: var(--font-mono);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  color: var(--color-gold);
+  letter-spacing: 0.05em;
+}
+
+.match-cancel-btn {
+  margin-top: var(--space-4);
+  min-width: 160px;
+}
+
+/* 加入房间 overlay */
+.room-list-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.room-list-loading {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-3);
-}
-
-.waiting-card h3 {
-  font-family: var(--font-serif);
-  color: var(--color-text-primary);
+  padding: var(--space-8) 0;
+  color: var(--color-text-tertiary);
 }
 
 .loading-spinner {
@@ -541,15 +742,128 @@ function getResultClass(result: string): string {
   border-top-color: var(--color-gold);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: var(--space-2) auto;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-.text-muted {
+.room-list-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.room-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-bg-card);
+  border: 2px solid var(--color-wood-light);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.room-card:hover {
+  border-color: var(--color-gold);
+  background: var(--color-bg-secondary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.room-card.selected {
+  border-color: var(--color-gold);
+  background: rgba(217, 119, 6, 0.06);
+  box-shadow: 0 0 0 1px var(--color-gold);
+}
+
+.room-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.room-card-id {
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.room-card-phase {
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.room-card-phase.waiting {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--color-warning);
+}
+
+.room-card-phase.ready {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--color-info);
+}
+
+.room-card-phase.playing {
+  background: rgba(5, 150, 105, 0.1);
+  color: var(--color-success);
+}
+
+.room-card-players {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.room-card-player {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.room-card-player.empty {
+  color: var(--color-text-muted);
+}
+
+.player-side {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  color: white;
+  flex-shrink: 0;
+}
+
+.player-side.red { background: #dc2626; }
+.player-side.black { background: #1f2937; }
+
+.room-card-player .player-name {
+  flex: 1;
+  color: var(--color-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card-player .player-rating {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   color: var(--color-text-tertiary);
 }
 
@@ -817,6 +1131,18 @@ function getResultClass(result: string): string {
   .lobby-links {
     flex-direction: column;
     align-items: center;
+  }
+}
+
+@media (min-width: 640px) {
+  .room-list-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .room-list-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 </style>

@@ -25,4 +25,8 @@ export function registerRoomHandlers(): void {
   })
   messageRouter.on(WSRespType.OPPONENT_READY, (data) => gameStore.handleOpponentReady(data))
   messageRouter.on(WSRespType.OPPONENT_REMATCH, (data) => gameStore.handleOpponentRematch(data))
+  messageRouter.on(WSRespType.OPPONENT_STATUS_CHANGE, (data) => {
+    roomStore.handleOpponentStatusChange(data)
+    gameStore.handleOpponentStatusChange(data)
+  })
 }

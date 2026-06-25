@@ -4,10 +4,12 @@
  * 
  * @prop side - 显示位置：opponent=上方, player=下方
  * @prop name - 玩家名称
+ * @prop avatar - 头像标识 (e.g. "sys:avatar-boy-10" 或 "sys:ai-hard")
  * @prop level - 段位/等级
  * @prop time - 剩余秒数
  * @prop isTurn - 是否轮到该玩家
  * @prop showTimer - 是否显示计时器
+ * @prop online - 是否在线（默认 true）
  */
 <script setup lang="ts">
 import { computed } from 'vue'
@@ -18,29 +20,50 @@ const baseUrl = import.meta.env.BASE_URL
 const props = defineProps<{
   side: 'opponent' | 'player'
   name: string
+  avatar?: string
   level?: string
   time?: number
   isTurn?: boolean
   showTimer?: boolean
+  online?: boolean
 }>()
 
 const avatarText = computed(() => {
   return (props.name || (props.side === 'opponent' ? '对' : '我')).charAt(0)
 })
 
+/** 解析头像引用，返回 SVG 路径；非系统头像或无头像返回空 */
+const avatarImgSrc = computed(() => {
+  if (!props.avatar) return ''
+  if (props.avatar.startsWith('sys:')) {
+    const name = props.avatar.slice(4) // 去掉 "sys:" 前缀
+    return baseUrl + `assets/svg/headicon/${name}.svg`
+  }
+  return ''
+})
+
 const containerClass = computed(() => {
   return props.side === 'opponent' ? 'game-opponent' : 'game-player'
 })
+
+const isOnline = computed(() => props.online !== false)
 </script>
 
 <template>
   <div :class="containerClass" :style="{ opacity: isTurn ? 1 : 0.75 }">
     <div class="ava" :class="{ 'ava--active': isTurn }">
-      <img :src="baseUrl + 'assets/svg/ui/icon-user.svg'" alt="" class="ava-bg-icon" />
-      <span class="ava-text">{{ avatarText }}</span>
+      <img v-if="avatarImgSrc" :src="avatarImgSrc" alt="" class="ava-img" />
+      <template v-else>
+        <img :src="baseUrl + 'assets/svg/ui/icon-user.svg'" alt="" class="ava-bg-icon" />
+        <span class="ava-text">{{ avatarText }}</span>
+      </template>
+      <span class="ava-status-dot" :class="isOnline ? 'online' : 'offline'" />
     </div>
     <div class="opp-info">
-      <div class="opp-name">{{ name || (side === 'opponent' ? '等待对手' : '我') }}</div>
+      <div class="opp-name">
+        {{ name || (side === 'opponent' ? '等待对手' : '我') }}
+        <span v-if="!isOnline" class="offline-tag">已断线</span>
+      </div>
       <div v-if="level" class="opp-level">{{ level }}</div>
     </div>
     <GameTimer v-if="showTimer && time !== undefined" :time="time" :warn-threshold="30" />
@@ -91,6 +114,32 @@ const containerClass = computed(() => {
   box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2);
 }
 
+.ava-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ava-status-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  z-index: 2;
+}
+
+.ava-status-dot.online {
+  background: #22c55e;
+}
+
+.ava-status-dot.offline {
+  background: #ef4444;
+}
+
 .game-player .ava--active {
   border-color: var(--color-gold);
 }
@@ -110,6 +159,18 @@ const containerClass = computed(() => {
   white-space: nowrap;
 }
 
+.offline-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: #fff;
+  background: #ef4444;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
 .opp-level {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
@@ -127,6 +188,15 @@ const containerClass = computed(() => {
   .ava-bg-icon {
     width: 18px;
     height: 18px;
+  }
+  .ava-status-dot {
+    width: 9px;
+    height: 9px;
+    border-width: 1.5px;
+  }
+  .offline-tag {
+    font-size: 10px;
+    padding: 0 4px;
   }
 }
 </style>

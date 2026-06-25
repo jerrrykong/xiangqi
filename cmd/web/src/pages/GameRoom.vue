@@ -7,6 +7,7 @@ import { useRoomStore } from '@/stores/room'
 
 const router = useRouter()
 const route = useRoute()
+const baseUrl = import.meta.env.BASE_URL
 const authStore = useAuthStore()
 const roomStore = useRoomStore()
 
@@ -123,6 +124,67 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
   if (isReady) return '已准备'
   return side === roomStore.currentRoom?.yourSide ? '等待准备' : '等待加入'
 }
+
+/** 判断红方是否为 AI */
+function isRedAI(): boolean {
+  if (!roomStore.currentRoom) return false
+  if (roomStore.currentRoom.roomType !== 'pve') return false
+  // 在 PvE 中，如果自己是黑方，则红方是 AI
+  return roomStore.currentRoom.yourSide === 'black'
+}
+
+/** 判断黑方是否为 AI */
+function isBlackAI(): boolean {
+  if (!roomStore.currentRoom) return false
+  if (roomStore.currentRoom.roomType !== 'pve') return false
+  return roomStore.currentRoom.yourSide === 'red'
+}
+
+/** 解析头像引用为 SVG 路径 */
+function resolveAvatarSrc(avatarRef: string | undefined): string {
+  if (!avatarRef) return ''
+  if (avatarRef.startsWith('sys:')) {
+    const name = avatarRef.slice(4)
+    return baseUrl + `assets/svg/headicon/${name}.svg`
+  }
+  return ''
+}
+
+/** 获取红方头像 */
+function getRedAvatar(): string {
+  if (isRedAI()) {
+    return resolveAvatarSrc(roomStore.currentRoom?.aiAvatar)
+  }
+  if (roomStore.currentRoom?.yourSide === 'red') {
+    return resolveAvatarSrc(authStore.user?.avatar)
+  }
+  return resolveAvatarSrc(roomStore.currentRoom?.opponent?.avatar)
+}
+
+/** 获取黑方头像 */
+function getBlackAvatar(): string {
+  if (isBlackAI()) {
+    return resolveAvatarSrc(roomStore.currentRoom?.aiAvatar)
+  }
+  if (roomStore.currentRoom?.yourSide === 'black') {
+    return resolveAvatarSrc(authStore.user?.avatar)
+  }
+  return resolveAvatarSrc(roomStore.currentRoom?.opponent?.avatar)
+}
+
+/** 判断红方是否在线 */
+function isRedOnline(): boolean {
+  if (isRedAI()) return true
+  if (roomStore.currentRoom?.yourSide === 'red') return true
+  return roomStore.currentRoom?.opponent?.online ?? true
+}
+
+/** 判断黑方是否在线 */
+function isBlackOnline(): boolean {
+  if (isBlackAI()) return true
+  if (roomStore.currentRoom?.yourSide === 'black') return true
+  return roomStore.currentRoom?.opponent?.online ?? true
+}
 </script>
 
 <template>
@@ -160,14 +222,24 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
           <div class="players-container">
             <!-- 红方 -->
             <div class="player-box" :class="{ 'is-you': roomStore.currentRoom?.yourSide === 'red' }">
-              <div class="player-emoji">🔴</div>
+              <div class="player-avatar-area">
+                <img v-if="getRedAvatar()" :src="getRedAvatar()" alt="" class="player-avatar-img" />
+                <span v-else class="player-emoji">🔴</span>
+                <span class="avatar-status-dot" :class="isRedOnline() ? 'online' : 'offline'" />
+              </div>
               <div class="player-title">
                 {{ roomStore.currentRoom?.yourSide === 'red' ? '你 (红方)' : '红方' }}
               </div>
               <!-- 如果你是黑方，显示红方对手的名字 -->
-              <div v-if="roomStore.currentRoom?.yourSide === 'black' && roomStore.currentRoom?.opponent" class="opponent-name">
-                {{ (roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0) ? '电脑' : roomStore.currentRoom.opponent.username }}
-                <span v-if="roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0" class="ai-badge">AI</span>
+              <div v-if="roomStore.currentRoom?.yourSide === 'black'" class="opponent-name">
+                <template v-if="isRedAI()">
+                  {{ roomStore.currentRoom?.aiName || '电脑' }}
+                  <span class="ai-badge">AI</span>
+                </template>
+                <template v-else-if="roomStore.currentRoom?.opponent">
+                  {{ roomStore.currentRoom.opponent.username }}
+                  <span v-if="!isRedOnline()" class="offline-tag">已断线</span>
+                </template>
               </div>
               <div v-else-if="roomStore.currentRoom?.redReady" class="ready-text">
                 <span class="check">✓</span> 已准备
@@ -180,14 +252,24 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
 
             <!-- 黑方 -->
             <div class="player-box black" :class="{ 'is-you': roomStore.currentRoom?.yourSide === 'black' }">
-              <div class="player-emoji">⚫</div>
+              <div class="player-avatar-area">
+                <img v-if="getBlackAvatar()" :src="getBlackAvatar()" alt="" class="player-avatar-img" />
+                <span v-else class="player-emoji">⚫</span>
+                <span class="avatar-status-dot" :class="isBlackOnline() ? 'online' : 'offline'" />
+              </div>
               <div class="player-title">
                 {{ roomStore.currentRoom?.yourSide === 'black' ? '你 (黑方)' : '黑方' }}
               </div>
               <!-- 如果你是红方，显示黑方对手的名字 -->
-              <div v-if="roomStore.currentRoom?.yourSide === 'red' && roomStore.currentRoom?.opponent" class="opponent-name">
-                {{ (roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0) ? '电脑' : roomStore.currentRoom.opponent.username }}
-                <span v-if="roomStore.currentRoom.roomType === 'pve' || roomStore.currentRoom.opponent.userId === 0" class="ai-badge">AI</span>
+              <div v-if="roomStore.currentRoom?.yourSide === 'red'" class="opponent-name">
+                <template v-if="isBlackAI()">
+                  {{ roomStore.currentRoom?.aiName || '电脑' }}
+                  <span class="ai-badge">AI</span>
+                </template>
+                <template v-else-if="roomStore.currentRoom?.opponent">
+                  {{ roomStore.currentRoom.opponent.username }}
+                  <span v-if="!isBlackOnline()" class="offline-tag">已断线</span>
+                </template>
               </div>
               <div v-else-if="roomStore.currentRoom?.blackReady" class="ready-text">
                 <span class="check">✓</span> 已准备
@@ -364,6 +446,23 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
   margin-bottom: 8px;
 }
 
+.player-avatar-area {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.player-avatar-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .player-title {
   font-weight: bold;
   font-size: 1.125rem;
@@ -432,5 +531,36 @@ function getReadyStatus(isReady: boolean, side: 'red' | 'black') {
   color: #fff;
   background: #6b7280;
   border-radius: 4px;
+}
+
+.avatar-status-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  z-index: 2;
+}
+
+.avatar-status-dot.online {
+  background: #22c55e;
+}
+
+.avatar-status-dot.offline {
+  background: #ef4444;
+}
+
+.offline-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #fff;
+  background: #ef4444;
+  border-radius: 3px;
+  vertical-align: middle;
 }
 </style>

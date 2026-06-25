@@ -267,7 +267,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // 注册 — 连接 WS 并发送 auth_register 作为首条消息
-  async function register(username: string, password: string, nickname?: string): Promise<UserProfile> {
+  async function register(username: string, password: string, nickname?: string, avatar?: string): Promise<UserProfile> {
     isLoading.value = true
     try {
       // 确保 WS 已连接
@@ -276,7 +276,7 @@ export const useAuthStore = defineStore('auth', () => {
         await wsClient.connect(wsUrl)
       }
 
-      const result = await wsClient.request(WSMsgType.AUTH_REGISTER, { username, password, nickname })
+      const result = await wsClient.request(WSMsgType.AUTH_REGISTER, { username, password, nickname, avatar })
       if (!result.success) {
         // 注册失败 → 断开 WS
         wsClient.disconnect()
@@ -326,6 +326,7 @@ export const useAuthStore = defineStore('auth', () => {
       user_id: data.user_id!,
       username: data.username!,
       nickname: data.nickname || data.username!,
+      avatar: data.avatar,
       rating: data.rating || 1500,
       games_count: data.games_count || 0,
       is_admin: data.is_admin || false,
@@ -350,6 +351,7 @@ export const useAuthStore = defineStore('auth', () => {
       user_id: data.user_id!,
       username: data.username!,
       nickname: data.nickname || data.username!,
+      avatar: data.avatar,
       rating: data.rating || 1500,
       games_count: data.games_count || 0,
       is_admin: data.is_admin || false,

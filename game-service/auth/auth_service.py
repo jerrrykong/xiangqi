@@ -58,10 +58,16 @@ class AuthService:
         return user
 
     async def register(self, username: str, password: str,
-                       nickname: str = "") -> Optional[asyncpg.Record]:
+                       nickname: str = "", avatar: str = "") -> Optional[asyncpg.Record]:
         """Register a new user.
 
         Returns user record on success, None on failure.
+
+        Args:
+            username: Unique username.
+            password: Plain-text password (will be hashed).
+            nickname: Display name (defaults to username).
+            avatar: Avatar identifier (e.g. "sys:avatar-boy-10").
         """
         # Validate username uniqueness
         if await self.user_repo.exists_username(username):
@@ -88,6 +94,7 @@ class AuthService:
             username=username,
             password_hash=password_hash,
             nickname=nickname or username,
+            avatar=avatar,
         )
 
         if user is None:

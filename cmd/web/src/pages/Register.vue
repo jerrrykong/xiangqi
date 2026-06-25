@@ -1,6 +1,6 @@
 /**
  * Register — 注册页面
- * 与登录页同风格
+ * 与登录页同风格，支持头像选择
  */
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
@@ -14,11 +14,20 @@ const authStore = useAuthStore()
 
 const isLoading = ref(false)
 
+/** 系统预设头像列表 */
+const systemAvatars = [
+  { name: 'avatar-boy-10', label: '少年A' },
+  { name: 'avatar-boy-20', label: '少年B' },
+  { name: 'avatar-girl-10', label: '少女A' },
+  { name: 'avatar-girl-18', label: '少女B' },
+]
+
 const form = reactive({
   username: '',
   password: '',
   confirmPassword: '',
   nickname: '',
+  avatar: 'sys:avatar-boy-10', // 默认头像
 })
 
 const errors = reactive({
@@ -27,6 +36,27 @@ const errors = reactive({
   confirmPassword: '',
   nickname: '',
 })
+
+/** 头像选择弹窗 */
+const showAvatarPicker = ref(false)
+
+/** 打开头像选择弹窗 */
+function openAvatarPicker() {
+  showAvatarPicker.value = true
+}
+
+/** 选择头像 */
+function selectAvatar(avatarName: string) {
+  form.avatar = `sys:${avatarName}`
+  showAvatarPicker.value = false
+}
+
+/** 获取当前选中头像的 SVG 路径 */
+function getAvatarSvgPath(avatarRef: string): string {
+  // 去掉 "sys:" 前缀获取文件名
+  const name = avatarRef.replace(/^sys:/, '')
+  return baseUrl + `assets/svg/headicon/${name}.svg`
+}
 
 /** 监听输入清除错误 */
 watch(() => form.username, () => { errors.username = '' })
@@ -85,7 +115,7 @@ async function handleRegister() {
 
   isLoading.value = true
   try {
-    await authStore.register(form.username, form.password, form.nickname || undefined)
+    await authStore.register(form.username, form.password, form.nickname || undefined, form.avatar)
     showToast('注册成功，请登录', 'success')
     router.push('/login')
   } catch (error: any) {
@@ -137,6 +167,15 @@ async function handleRegister() {
         </div>
 
         <div class="form-group">
+          <label class="form-label">头像</label>
+          <button type="button" class="avatar-select-btn" @click="openAvatarPicker">
+            <img :src="getAvatarSvgPath(form.avatar)" alt="" class="avatar-select-preview" />
+            <span class="avatar-select-text">选择头像</span>
+            <img :src="baseUrl + 'assets/svg/ui/icon-next.svg'" alt="" class="avatar-select-arrow" />
+          </button>
+        </div>
+
+        <div class="form-group">
           <label class="form-label">密码</label>
           <input
             v-model="form.password"
@@ -180,6 +219,35 @@ async function handleRegister() {
         <span>v1.0.0 · 楚漢爭鋒工作室</span>
       </div>
     </div>
+
+    <!-- 头像选择弹窗 -->
+    <Transition name="overlay">
+      <div v-if="showAvatarPicker" class="review-overlay" @click.self="showAvatarPicker = false">
+        <div class="review-popup avatar-popup">
+          <div class="popup-header">
+            <h3 class="popup-title">选择头像</h3>
+            <button class="popup-close" @click="showAvatarPicker = false">
+              <img :src="baseUrl + 'assets/svg/ui/icon-close.svg'" alt="关闭" />
+            </button>
+          </div>
+          <div class="avatar-grid">
+            <button
+              v-for="item in systemAvatars"
+              :key="item.name"
+              class="avatar-item"
+              :class="{ 'avatar-item--selected': form.avatar === `sys:${item.name}` }"
+              @click="selectAvatar(item.name)"
+            >
+              <img :src="baseUrl + `assets/svg/headicon/${item.name}.svg`" :alt="item.label" class="avatar-item-img" />
+              <span class="avatar-item-label">{{ item.label }}</span>
+            </button>
+          </div>
+          <div class="popup-footer">
+            <button class="btn btn-primary btn--block" @click="showAvatarPicker = false">确认</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -272,4 +340,103 @@ async function handleRegister() {
     height: 64px;
   }
 }
+
+/* 头像选择按钮 */
+.avatar-select-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-wood-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.avatar-select-btn:hover {
+  border-color: var(--color-gold);
+  background: var(--color-wood-bg);
+}
+
+.avatar-select-preview {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.avatar-select-text {
+  flex: 1;
+  text-align: left;
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+}
+
+.avatar-select-arrow {
+  width: 16px;
+  height: 16px;
+  opacity: 0.5;
+}
+
+/* 头像选择弹窗 */
+.avatar-popup {
+  max-width: 380px;
+  padding: var(--space-6);
+}
+
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+}
+
+.avatar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-bg-secondary);
+  border: 2px solid transparent;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.avatar-item:hover {
+  border-color: var(--color-gold-light);
+  background: var(--color-wood-bg);
+}
+
+.avatar-item--selected {
+  border-color: var(--color-gold);
+  background: var(--color-wood-bg);
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2);
+}
+
+.avatar-item-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+}
+
+.avatar-item-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.popup-footer {
+  margin-top: var(--space-4);
+}
+
+/* overlay 动画 */
+.overlay-enter-active { transition: all 0.25s ease-out; }
+.overlay-leave-active { transition: all 0.2s ease-in; }
+.overlay-enter-from { opacity: 0; }
+.overlay-enter-from .review-popup { transform: scale(0.9); }
+.overlay-leave-to { opacity: 0; }
+.overlay-leave-to .review-popup { transform: scale(0.95); }
 </style>

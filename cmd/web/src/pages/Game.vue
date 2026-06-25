@@ -230,12 +230,29 @@ const opponentIsAI = computed(() => {
 })
 
 const opponentName = computed(() => {
-  if (!roomStore.currentRoom?.opponent) {
-    return roomStore.currentRoom?.roomType === 'pve' ? '电脑' : '等待中'
+  if (opponentIsAI.value) {
+    return roomStore.currentRoom?.aiName || '电脑'
   }
-  // 当对手为 AI 时，显示友好的名称 "电脑"
-  if (opponentIsAI.value) return '电脑'
-  return roomStore.currentRoom.opponent.username
+  if (!roomStore.currentRoom?.opponent) {
+    return '等待中'
+  }
+  return roomStore.currentRoom.opponent.nickname || roomStore.currentRoom.opponent.username
+})
+
+const opponentAvatar = computed(() => {
+  if (opponentIsAI.value) {
+    return roomStore.currentRoom?.aiAvatar || ''
+  }
+  return roomStore.currentRoom?.opponent?.avatar || ''
+})
+
+const opponentOnline = computed(() => {
+  if (opponentIsAI.value) return true
+  return roomStore.currentRoom?.opponent?.online ?? gameStore.opponentOnline
+})
+
+const myAvatar = computed(() => {
+  return authStore.user?.avatar || ''
 })
 
 const opponentColor = computed(() => gameStore.yourColor === 0 ? 'black' : 'red')
@@ -329,10 +346,12 @@ function formatTime(seconds: number): string {
         <PlayerInfo
           side="opponent"
           :name="opponentName"
+          :avatar="opponentAvatar"
           :level="opponentIsAI ? 'AI' : undefined"
           :time="opponentTime"
           :is-turn="!gameStore.isMyTurn && gameStore.isGameStarted && !gameStore.isGameOver"
           :show-timer="gameStore.isGameStarted"
+          :online="opponentOnline"
         />
 
         <!-- 棋盘 -->
@@ -379,9 +398,11 @@ function formatTime(seconds: number): string {
         <PlayerInfo
           side="player"
           :name="authStore.user?.nickname || authStore.user?.username || '我'"
+          :avatar="myAvatar"
           :time="myTime"
           :is-turn="gameStore.isMyTurn && gameStore.isGameStarted && !gameStore.isGameOver"
           :show-timer="gameStore.isGameStarted"
+          :online="true"
         />
       </div>
 

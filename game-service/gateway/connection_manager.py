@@ -32,6 +32,8 @@ class ClientConnection:
         self.conn_id = conn_id
         self.user_id: Optional[int] = None
         self.username: Optional[str] = None
+        self.nickname: str = ""
+        self.avatar: str = ""
         self.state = ConnectionState.UNAUTHENTICATED
         self.room_id: Optional[str] = None
         self.session_token: Optional[str] = None
