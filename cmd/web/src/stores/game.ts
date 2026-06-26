@@ -1112,7 +1112,6 @@ export const useGameStore = defineStore('game', () => {
           avatar: data.black_player.avatar,
           rating: data.black_player.rating,
           online: data.black_player.online ?? true,
-          rating: data.black_player.rating,
         }
         // AI player info for PvE
         if (data.black_player.is_bot) {
