@@ -14,12 +14,13 @@ class DifficultyConfig:
 
 
 # Difficulty level → (search_depth, max_time_ms)
+# 优化后同等深度更快 (Zobrist + MTD(f) + 7类位置表)，各档 +1 深度
 DIFFICULTY_MAP: dict[int, DifficultyConfig] = {
-    1: DifficultyConfig(depth=2, max_time_ms=1000),    # 入门
-    2: DifficultyConfig(depth=3, max_time_ms=3000),    # 简单
-    3: DifficultyConfig(depth=4, max_time_ms=5000),    # 中等（默认）
-    4: DifficultyConfig(depth=5, max_time_ms=10000),   # 困难
-    5: DifficultyConfig(depth=6, max_time_ms=30000),   # 大师
+    1: DifficultyConfig(depth=3, max_time_ms=2000),    # 入门
+    2: DifficultyConfig(depth=4, max_time_ms=5000),    # 简单
+    3: DifficultyConfig(depth=5, max_time_ms=8000),    # 中等（默认）
+    4: DifficultyConfig(depth=6, max_time_ms=15000),   # 困难
+    5: DifficultyConfig(depth=8, max_time_ms=30000),   # 大师
 }
 
 

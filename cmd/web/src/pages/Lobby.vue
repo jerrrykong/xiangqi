@@ -43,9 +43,30 @@ const isInRoom = computed(() => authStore.authState === 'in_room')
 
 const isCreatingRoom = ref(false)
 
-/** PvE 难度选择 */
+/** PvE 难度选择 — 与后端 RoomManager.AI_PROFILES 保持一致 */
+interface AiProfile {
+  level: number
+  name: string
+  avatar: string  // "sys:ai-easy" 等
+  desc: string
+}
+const AI_PROFILES: AiProfile[] = [
+  { level: 1, name: '电脑·初学', avatar: 'sys:ai-easy',        desc: '刚入门的新手' },
+  { level: 2, name: '电脑·普通', avatar: 'sys:ai-medium',      desc: '有一定基础' },
+  { level: 3, name: '电脑·专业', avatar: 'sys:ai-hard',        desc: '攻防兼备' },
+  { level: 4, name: '电脑·大师', avatar: 'sys:ai-master',      desc: '精于算度' },
+  { level: 5, name: '电脑·宗师', avatar: 'sys:ai-grandmaster', desc: '神机妙算' },
+]
 const showPvEDialog = ref(false)
 const selectedDifficulty = ref(3)
+
+/** 解析系统头像路径 (与 PlayerInfo.vue 逻辑一致) */
+function resolveAvatarSrc(avatarKey: string): string {
+  if (avatarKey.startsWith('sys:')) {
+    return baseUrl + `assets/svg/headicon/${avatarKey.slice(4)}.svg`
+  }
+  return ''
+}
 
 /** Overlay 弹窗 */
 const activeOverlay = ref<'' | 'rankings' | 'history' | 'matchmaking' | 'joinRoom'>('')
@@ -450,17 +471,23 @@ function getResultClass(result: string): string {
             <img :src="baseUrl + 'assets/svg/ui/icon-close.svg'" alt="关闭" />
           </button>
         </div>
-        <div class="overlay-body">
-          <p class="form-label">选择AI难度</p>
-          <div class="difficulty-options">
+        <div class="overlay-body pve-dialog-body">
+          <p class="form-label">选择对手</p>
+          <div class="ai-profile-list">
             <button
-              v-for="d in 5"
-              :key="d"
-              class="difficulty-btn"
-              :class="{ active: selectedDifficulty === d }"
-              @click="selectedDifficulty = d"
+              v-for="profile in AI_PROFILES"
+              :key="profile.level"
+              class="ai-profile-card"
+              :class="{ active: selectedDifficulty === profile.level }"
+              @click="selectedDifficulty = profile.level"
             >
-              {{ ['', '简单', '中等', '困难', '大师', '宗师'][d] }}
+              <div class="ai-avatar">
+                <img :src="resolveAvatarSrc(profile.avatar)" :alt="profile.name" class="ai-avatar-img" />
+              </div>
+              <div class="ai-profile-info">
+                <div class="ai-profile-name">{{ profile.name }}</div>
+                <div class="ai-profile-desc">{{ profile.desc }}</div>
+              </div>
             </button>
           </div>
         </div>
@@ -1061,33 +1088,89 @@ function getResultClass(result: string): string {
   padding: var(--space-8) 0;
 }
 
-/* 难度选择 */
-.difficulty-options {
+/* 难度/对手选择 */
+.pve-dialog-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-profile-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  flex: 1;
+  overflow-y: auto;
 }
 
-.difficulty-btn {
+.ai-profile-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-wood-light);
-  color: var(--color-text-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+  border: 2px solid var(--color-wood-light);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
   text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
-.difficulty-btn.active {
-  background: var(--color-gold);
-  color: white;
-  border-color: var(--color-gold-dark);
-}
-
-.difficulty-btn:hover:not(.active) {
+.ai-profile-card:hover {
   border-color: var(--color-gold);
-  background: var(--color-wood-bg);
+  background: var(--color-bg-secondary);
+  transform: translateX(4px);
+}
+
+.ai-profile-card.active {
+  border-color: var(--color-gold);
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.08), rgba(245, 158, 11, 0.04));
+  box-shadow: 0 0 0 1px var(--color-gold);
+}
+
+.ai-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 2px solid var(--color-wood-light);
+  background: var(--color-bg-secondary);
+}
+
+.ai-profile-card.active .ai-avatar {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 8px rgba(217, 119, 6, 0.25);
+}
+
+.ai-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ai-profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-profile-name {
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.ai-profile-card.active .ai-profile-name {
+  color: var(--color-gold-dark);
+}
+
+.ai-profile-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
 }
 
 /* Overlay 动画 */
