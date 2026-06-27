@@ -7,11 +7,6 @@ import logging
 from chess.constants import (
     Color,
     PieceType,
-    PIECE_EMPTY,
-    PIECE_RED_KING, PIECE_RED_ADVISOR, PIECE_RED_BISHOP, PIECE_RED_KNIGHT,
-    PIECE_RED_ROOK, PIECE_RED_CANNON, PIECE_RED_PAWN,
-    PIECE_BLACK_KING, PIECE_BLACK_ADVISOR, PIECE_BLACK_BISHOP, PIECE_BLACK_KNIGHT,
-    PIECE_BLACK_ROOK, PIECE_BLACK_CANNON, PIECE_BLACK_PAWN,
     BOARD_ROWS, BOARD_COLS,
     get_color_from_piece, get_piece_type_from_piece,
     Difficulty, DIFFICULTY_SIMULATIONS,
@@ -43,106 +38,63 @@ class MaterialTable:
     """棋子价值表 (用于静态评估)
     
     象棋 AI 评估函数 = 棋子价值 + 位置价值
+    
+    棋子基础价值 (绝对值，由 Evaluator._get_base_value 统一管理):
+        兵/卒: 100 (过河后通过位置表加分，等效价值约 150-250)
+        士/仕: 200
+        象/相: 200
+        马:    400
+        炮:    450
+        车:    900
+        将/帅: 10000 (无法直接吃, 吃子时已胜利)
     """
     
-    # 基础价值 (绝对值)
-    PIECE_VALUES: Dict[int, float] = {
-        # 兵/卒: 未过河 100, 过河 150
-        PIECE_RED_PAWN: 100,
-        PIECE_BLACK_PAWN: 100,
-        # 士/仕: 200
-        PIECE_RED_ADVISOR: 200,
-        PIECE_BLACK_ADVISOR: 200,
-        # 象/相: 200 (不能过河)
-        PIECE_RED_BISHOP: 200,
-        PIECE_BLACK_BISHOP: 200,
-        # 马: 400
-        PIECE_RED_KNIGHT: 400,
-        PIECE_BLACK_KNIGHT: 400,
-        # 炮: 450
-        PIECE_RED_CANNON: 450,
-        PIECE_BLACK_CANNON: 450,
-        # 车: 900
-        PIECE_RED_ROOK: 900,
-        PIECE_BLACK_ROOK: 900,
-        # 将/帅: 10000 (无法直接吃, 吃子时已胜利)
-        PIECE_RED_KING: 10000,
-        PIECE_BLACK_KING: 00,
-    }
-    
-    # 位置价值表 (兵/卒 - 红方视角)
-    # 正数表示对红方有利的位置
+    # 位置价值表 (兵/卒 - "row 0 = 黑方底线"视角，与其他表一致)
+    # 表为对称设计 (关于 idx 4.5 中心对称)，因此红方反转/黑方不反转结果相同。
+    # 兵过河后越深入对方阵地，威胁越大，加分递增。
+    # 已合并原 _get_pawn_structure_bonus: 过河(+20) + 中路列(+10)
+    #   idx 3 = 兵初始位置 (红兵 row 6 / 黑卒 row 3)
+    #   idx 4 = 河口 (未过河但临河)
+    #   idx 5 = 刚过河
+    #   idx 6/7/8 = 过河中段 (递增)
+    #   idx 9 = 对方底线 (最致命)
     PAWN_POSITIONAL: List[List[int]] = [
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [100, 100, 100, 100, 100, 100, 100, 100, 100],  # 过河兵 +100
-        [  0,   0,  50,  80, 100,  80,  50,   0,   0],  # 河口兵 +50~100
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
-        [  0,   0,   0,   0,   0,   0,   0,   0,   0],
+        [ 70, 100, 120, 150, 180, 150, 120, 100,  70],  # idx 0 = 对方底线 (最致命)
+        [ 40,  60,  90, 120, 130, 120,  90,  60,  40],  # idx 1 = 过河更深入
+        [ 30,  40,  70, 100, 110, 100,  70,  40,  30],  # idx 2 = 过河深入
+        [ 20,  30,  50,  80,  90,  80,  50,  30,  20],  # idx 3 = 过河中段
+        [ 20,  20,  40,  60,  70,  60,  40,  20,  20],  # idx 4 = 刚过河
+        [  0,   0,  10,  25,  30,  25,  10,   0,   0],  # idx 5 = 河口
+        [  0,   0,   0,  10,  10,  10,   0,   0,   0],  # idx 6 = 初始位置
+        [  0,   0,   0,   0,   0,   0,   0,   0,   0],  # idx 7 (兵不可达)
+        [  0,   0,   0,   0,   0,   0,   0,   0,   0],  # idx 8 (兵不可达)
+        [  0,   0,   0,   0,   0,   0,   0,   0,   0],  # idx 9 (兵不可达)
     ]
-    
-    # 位置价值表 (黑方视角, 即红方的镜像)
+
     @classmethod
     def get_pawn_positional(cls, col: int, row: int, color: Color) -> float:
         """获取兵/卒的位置价值
-        
-        Args:
-            col, row: 棋子位置
-            color: 棋子颜色
-            
-        Returns:
-            位置价值
+
+        表为 "row 0 = 黑方底线" 视角，对称设计。
+        - 红方视角: idx = BOARD_ROWS - 1 - row
+        - 黑方视角: idx = row
         """
-        if color == Color.RED:
-            return float(cls.PAWN_POSITIONAL[row][col])
-        else:
-            # 黑方视角, row 翻转
-            return float(cls.PAWN_POSITIONAL[BOARD_ROWS - 1 - row][col])
-    
-    # 车/炮位置价值
-    ROOK_POSITIONAL: List[List[int]] = [
-        [14, 14, 12, 18, 16, 18, 12, 14, 14],
-        [16, 20, 18, 24, 26, 24, 18, 20, 16],
-        [12, 12, 12, 18, 18, 18, 12, 12, 12],
-        [12, 18, 16, 22, 22, 22, 16, 18, 12],
-        [12, 14, 12, 18, 18, 18, 12, 14, 12],
-        [12, 16, 14, 20, 20, 20, 14, 16, 12],
-        [ 6, 10,  8, 14, 14, 14,  8, 10,  6],
-        [ 4,  8,  6, 14, 12, 14,  6,  8,  4],
-        [ 8,  4,  8, 16,  8, 16,  8,  4,  8],
-        [ 0,  0, -2,  8,  6,  8, -2,  0,  0],
-    ]
-    
-    @classmethod
-    def get_rook_positional(cls, col: int, row: int, color: Color) -> float:
-        """获取车/炮的位置价值
-        
-        表中 row=0 为黑方底线 (row 0), row=9 为红方底线 (row 9)。
-        - 黑方视角: table[row]
-        - 红方视角: table[BOARD_ROWS-1-row]
-        """
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row
-        else:
-            idx = row
-        return float(cls.ROOK_POSITIONAL[idx][col])
+        return float(cls.PAWN_POSITIONAL[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
     
     # 马位置价值 (10行，与棋盘一一对应)
+    # 已合并原 _get_knight_activity_bonus (+10 中央区 col 2-6, row 2-7)
+    # 已合并原 _get_original_knight_bonus (-20 原位 col 1/7, row 9)
     KNIGHT_POSITIONAL: List[List[int]] = [
-        [-8, -6, -8, -6, -4, -6, -8, -6, -8],  # row 0 = 黑方底线
-        [-4,  4,  0,  2,  4,  2,  0,  4, -4],  # row 1
-        [-2,  0,  2,  4,  4,  4,  2,  0, -2],  # row 2 (补充完整)
-        [-4,  2,  6,  8, 10,  8,  6,  2, -4],  # row 3
-        [-4,  4,  8, 12, 12, 12,  8,  4, -4],  # row 4
-        [-4,  6,  8, 10, 12, 10,  8,  6, -4],  # row 5
-        [-4,  6,  6,  8,  8,  8,  6,  6, -4],  # row 6
-        [-6, -4,  4,  6,  4,  6,  4, -4, -6],  # row 7
-        [-8,-10, -4, -2, -4, -2, -4,-10, -8],  # row 8
-        [-10, -8, -6, -4, -8, -4, -6, -8,-10],  # row 9 = 红方底线
+        [-8, -6,  2,  4,  6,  4,  2, -6, -8],  # row 0 = 黑方底线
+        [-4,  4, 10, 12, 14, 12, 10,  4, -4],  # row 1
+        [-2,  0, 12, 14, 14, 14, 12,  0, -2],  # row 2
+        [-4,  2, 16, 18, 20, 18, 16,  2, -4],  # row 3
+        [-4,  4, 18, 22, 22, 22, 18,  4, -4],  # row 4
+        [-4,  6, 18, 20, 22, 20, 18,  6, -4],  # row 5
+        [-4,  6, 16, 18, 18, 18, 16,  6, -4],  # row 6
+        [-6, -4, 14, 16, 14, 16, 14, -4, -6],  # row 7
+        [-8,-10,  6,  8,  6,  8,  6,-10, -8],  # row 8
+        [-10,-28, -6, -4, -8, -4, -6,-28,-10],  # row 9 = 红方底线
     ]
     
     @classmethod
@@ -153,59 +105,49 @@ class MaterialTable:
         - 黑方视角: table[row]
         - 红方视角: table[BOARD_ROWS-1-row]
         """
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row  # row 9 → idx 0
-        else:
-            idx = row  # row 0 → idx 0
-        return float(cls.KNIGHT_POSITIONAL[idx][col])
+        return float(cls.KNIGHT_POSITIONAL[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
 
     # ——— 炮独立位置价值 (不同于车，炮需要炮架，偏好中路和对方阵地) ———
     # 红方视角, row 0 = 黑方底线, row 9 = 红方底线
+    # 已合并原 _get_cannon_activity_bonus: 中路(+8 col 3-5) + 过河(+3 row 0-4)
     CANNON_POSITIONAL: List[List[int]] = [
-        [ 6,  4,  0,-10,-12,-10,  0,  4,  6],  # row 0 = 黑方底线
-        [ 2,  2,  0, -4, -6, -4,  0,  2,  2],  # row 1
-        [ 4,  6,  8, 12, 14, 12,  8,  6,  4],  # row 2 (炮初始位置附近)
-        [10, 14, 16, 20, 24, 20, 16, 14, 10],  # row 3 (过河炮)
-        [12, 16, 18, 24, 28, 24, 18, 16, 12],  # row 4 (河口炮最佳)
-        [12, 16, 18, 24, 28, 24, 18, 16, 12],  # row 5 (河口炮最佳)
-        [10, 14, 16, 20, 24, 20, 16, 14, 10],  # row 6
-        [ 8, 10, 12, 16, 18, 16, 12, 10,  8],  # row 7 (红方初始炮位)
-        [ 6,  8,  8, 10, 12, 10,  8,  8,  6],  # row 8
-        [ 4,  6,  6,  8,  8,  8,  6,  6,  4],  # row 9 = 红方底线
+        [  9,   7,   3,   1,  -1,   1,   3,   7,   9],  # row 0 = 黑方底线
+        [  5,   5,   3,   7,   5,   7,   3,   5,   5],  # row 1
+        [  7,   9,  11,  23,  25,  23,  11,   9,   7],  # row 2 (炮初始位置附近)
+        [ 13,  17,  19,  31,  35,  31,  19,  17,  13],  # row 3 (过河炮)
+        [ 15,  19,  21,  35,  39,  35,  21,  19,  15],  # row 4 (河口炮最佳)
+        [ 12,  16,  18,  32,  36,  32,  18,  16,  12],  # row 5 (河口炮最佳)
+        [ 10,  14,  16,  28,  32,  28,  16,  14,  10],  # row 6
+        [  8,  10,  12,  24,  26,  24,  12,  10,   8],  # row 7 (红方初始炮位)
+        [  6,   8,   8,  18,  20,  18,   8,   8,   6],  # row 8
+        [  4,   6,   6,  16,  16,  16,   6,   6,   4],  # row 9 = 红方底线
     ]
 
     @classmethod
     def get_cannon_positional(cls, col: int, row: int, color: Color) -> float:
         """获取炮的位置价值"""
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row
-        else:
-            idx = row
-        return float(cls.CANNON_POSITIONAL[idx][col])
+        return float(cls.CANNON_POSITIONAL[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
 
     # ——— 车独立位置价值 (保留原有但提升精度) ———
     # 红方视角
+    # 已合并原 _get_rook_activity_bonus: 中路(+10 col 3-5) + 过河(+5 row 0-4)
     ROOK_POSITIONAL_IMPROVED: List[List[int]] = [
-        [14, 14, 12, 18, 16, 18, 12, 14, 14],  # row 0
-        [16, 20, 18, 24, 26, 24, 18, 20, 16],  # row 1
-        [12, 12, 12, 18, 18, 18, 12, 12, 12],  # row 2
-        [12, 18, 16, 22, 22, 22, 16, 18, 12],  # row 3
-        [12, 14, 12, 18, 18, 18, 12, 14, 12],  # row 4
-        [12, 16, 14, 20, 20, 20, 14, 16, 12],  # row 5
-        [ 6, 10,  8, 14, 14, 14,  8, 10,  6],  # row 6
-        [ 4,  8,  6, 14, 12, 14,  6,  8,  4],  # row 7
-        [ 8,  4,  8, 16,  8, 16,  8,  4,  8],  # row 8
-        [-2, 10,  6, 14, 12, 14,  6, 10, -2],  # row 9 (底线车稍弱, 但通路车加分)
+        [19, 19, 17, 33, 31, 33, 17, 19, 19],  # row 0
+        [21, 25, 23, 39, 41, 39, 23, 25, 21],  # row 1
+        [17, 17, 17, 33, 33, 33, 17, 17, 17],  # row 2
+        [17, 23, 21, 37, 37, 37, 21, 23, 17],  # row 3
+        [17, 19, 17, 33, 33, 33, 17, 19, 17],  # row 4
+        [12, 16, 14, 30, 30, 30, 14, 16, 12],  # row 5
+        [ 6, 10,  8, 24, 24, 24,  8, 10,  6],  # row 6
+        [ 4,  8,  6, 24, 22, 24,  6,  8,  4],  # row 7
+        [ 8,  4,  8, 26, 18, 26,  8,  4,  8],  # row 8
+        [-2, 10,  6, 24, 22, 24,  6, 10, -2],  # row 9 (底线车稍弱, 但通路车加分)
     ]
 
     @classmethod
     def get_rook_positional_improved(cls, col: int, row: int, color: Color) -> float:
         """获取车的改进位置价值"""
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row
-        else:
-            idx = row
-        return float(cls.ROOK_POSITIONAL_IMPROVED[idx][col])
+        return float(cls.ROOK_POSITIONAL_IMPROVED[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
 
     # ——— 仕/士 位置价值 (仅九宫内有效) ———
     # 红方视角: row 7-9, col 3-5
@@ -225,35 +167,27 @@ class MaterialTable:
     @classmethod
     def get_advisor_positional(cls, col: int, row: int, color: Color) -> float:
         """获取仕/士的位置价值"""
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row
-        else:
-            idx = row
-        return float(cls.ADVISOR_POSITIONAL[idx][col])
+        return float(cls.ADVISOR_POSITIONAL[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
 
     # ——— 相/象 位置价值 (仅己方半场7个点有效) ———
     # 红方视角
     BISHOP_POSITIONAL: List[List[int]] = [
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],  # row 0
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 20,  0, 25,  0,20, 0, 0],  # row 7 (红方河沿)
-        [0, 0,  0,  0,  0,  0, 0, 0, 0],
-        [0, 0, 10,  0, 15,  0,10, 0, 0],  # row 9 (红方底线)
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],  # row 0
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],
+        [0, 0, 20,  0,  0,  0, 20, 0, 0],  # row 5 (红方河沿)
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],
+        [0, 0,  0,  0, 25,  0,  0, 0, 0],  # row 7
+        [0, 0,  0,  0,  0,  0,  0, 0, 0],
+        [0, 0, 10,  0,  0,  0, 10, 0, 0],  # row 9 (红方底线)
     ]
 
     @classmethod
     def get_bishop_positional(cls, col: int, row: int, color: Color) -> float:
         """获取相/象的位置价值"""
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row
-        else:
-            idx = row
-        return float(cls.BISHOP_POSITIONAL[idx][col])
+        return float(cls.BISHOP_POSITIONAL[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
 
     # ——— 帅/将 位置价值 (仅九宫内有效) ———
     # 红方视角: row 7-9, col 3-5
@@ -273,11 +207,7 @@ class MaterialTable:
     @classmethod
     def get_king_positional(cls, col: int, row: int, color: Color) -> float:
         """获取帅/将的位置价值"""
-        if color == Color.RED:
-            idx = BOARD_ROWS - 1 - row
-        else:
-            idx = row
-        return float(cls.KING_POSITIONAL[idx][col])
+        return float(cls.KING_POSITIONAL[row if color == Color.RED else BOARD_ROWS - 1 - row][col])
 
 
 @dataclass
@@ -381,77 +311,32 @@ class Evaluator:
         self, col: int, row: int, ptype: PieceType, color: Color
     ) -> float:
         """获取棋子位置价值
-        
+
         7类棋子各有独立位置表，参考 vliang-cpp 的设计理念。
         依据对局阶段调整权重：开局位置价值强，残局子力价值强。
+        注：兵/车/炮/马的位置表中已包含原 activity_bonus，无需额外加成。
         """
         phase = getattr(self, '_phase', 0.0)
         opening_factor = 1.0 - phase
 
         if ptype == PieceType.PAWN:
-            base = MaterialTable.get_pawn_positional(col, row, color)
-            base = base * (1.0 + 0.3 * phase)
-            return base + self._get_pawn_structure_bonus(col, row, color) * (1.0 + 0.2 * phase)
+            return MaterialTable.get_pawn_positional(col, row, color) * (1.0 + 0.3 * phase)
         elif ptype == PieceType.ROOK:
-            base = MaterialTable.get_rook_positional_improved(col, row, color)
-            base = base * (1.0 + 0.3 * opening_factor)
-            return base + self._get_rook_activity_bonus(col, row, color) * (1.0 + 0.2 * opening_factor)
+            return MaterialTable.get_rook_positional_improved(col, row, color) * (1.0 + 0.3 * opening_factor)
         elif ptype == PieceType.CANNON:
-            base = MaterialTable.get_cannon_positional(col, row, color)
-            base = base * (1.0 + 0.3 * opening_factor)
-            return base + self._get_rook_activity_bonus(col, row, color) * 0.5 * (1.0 + 0.2 * opening_factor)
+            return MaterialTable.get_cannon_positional(col, row, color) * (1.0 + 0.3 * opening_factor)
         elif ptype == PieceType.KNIGHT:
-            base = MaterialTable.get_knight_positional(col, row, color)
-            base = base * (1.0 + 0.4 * phase)
-            return base + self._get_knight_activity_bonus(col, row, color) + self._get_original_knight_bonus(col, row, color)
+            return MaterialTable.get_knight_positional(col, row, color) * (1.0 + 0.4 * phase)
         elif ptype == PieceType.ADVISOR:
-            base = MaterialTable.get_advisor_positional(col, row, color)
-            return base * (1.0 + 0.2 * phase)
+            return MaterialTable.get_advisor_positional(col, row, color) * (1.0 + 0.2 * phase)
         elif ptype == PieceType.BISHOP:
-            base = MaterialTable.get_bishop_positional(col, row, color)
-            return base * (1.0 + 0.3 * phase)
+            return MaterialTable.get_bishop_positional(col, row, color) * (1.0 + 0.3 * phase)
         elif ptype == PieceType.KING:
-            base = MaterialTable.get_king_positional(col, row, color)
-            return base * (1.0 + 0.5 * phase)
+            # 帅的位置价值固定，不应用阶段因子
+            # (帅基础价值 10000 远大于位置价值 0-30，阶段因子对评估结果影响可忽略，
+            #  且"残局帅应出击 vs 开局帅应固守"方向相反，单方向加成会引入偏差)
+            return MaterialTable.get_king_positional(col, row, color)
         return 0.0
-
-    def _get_pawn_structure_bonus(self, col: int, row: int, color: Color) -> float:
-        bonus = 0.0
-        if color == Color.RED and row <= 4:
-            bonus += 20
-        elif color == Color.BLACK and row >= 5:
-            bonus += 20
-        if 3 <= col <= 5:
-            bonus += 10
-        return bonus
-
-    def _get_rook_activity_bonus(self, col: int, row: int, color: Color) -> float:
-        bonus = 0.0
-        if 3 <= col <= 5:
-            bonus += 10
-        if (color == Color.RED and row <= 4) or (color == Color.BLACK and row >= 5):
-            bonus += 5
-        return bonus
-
-    def _get_knight_activity_bonus(self, col: int, row: int, color: Color) -> float:
-        if 2 <= col <= 6 and 2 <= row <= 7:
-            return 10.0
-        return 0.0
-
-    def _get_original_knight_bonus(self, col: int, row: int, color: Color) -> float:
-        if color == Color.RED and row == BOARD_ROWS - 1 and col in (1, 7):
-            return -20.0
-        if color == Color.BLACK and row == 0 and col in (1, 7):
-            return -20.0
-        return 0.0
-
-    def _get_king_position_bonus(self, col: int, row: int, color: Color) -> float:
-        bonus = 0.0
-        if col == 4:
-            bonus += 5
-        if (color == Color.RED and row == 9) or (color == Color.BLACK and row == 0):
-            bonus += 5
-        return bonus
 
 
 # ==================== AI 搜索引擎 ====================
