@@ -373,7 +373,7 @@ class AuthHandler:
                 })
 
         # Build state_sync data
-        fen = board_to_fen(room.game_state.board) if room.game_state else ""
+        fen = board_to_fen(room.game_state.board, room.game_state.current_player) if room.game_state else ""
         current_side = "red" if room.game_state and room.game_state.current_player == 0 else "black" if room.game_state else "red"
 
         state_data = {

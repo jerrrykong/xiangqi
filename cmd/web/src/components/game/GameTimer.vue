@@ -10,6 +10,8 @@ import { computed } from 'vue'
 const props = defineProps<{
   time: number
   warnThreshold?: number
+  isTurn?: boolean
+  isCritical?: boolean
 }>()
 
 const formatted = computed(() => {
@@ -25,7 +27,14 @@ const isWarning = computed(() => {
 </script>
 
 <template>
-  <div class="opp-timer" :class="{ 'opp-timer--warn': isWarning }">
+  <div
+    class="opp-timer"
+    :class="{
+      'opp-timer--active': isTurn,
+      'opp-timer--critical': isCritical,
+      'opp-timer--warn': isWarning && !isCritical,
+    }"
+  >
     {{ formatted }}
   </div>
 </template>
@@ -42,8 +51,34 @@ const isWarning = computed(() => {
   min-width: 85px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  transition: background 0.3s, color 0.3s;
 }
 
+/* 走棋方倒计时：亮色 + 1秒闪烁动画 */
+.opp-timer--active {
+  color: #fff;
+  background: var(--color-gold);
+  animation: timer-active-glow 1s ease-in-out infinite;
+}
+
+@keyframes timer-active-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.4); }
+  50% { box-shadow: 0 0 12px 2px rgba(217, 119, 6, 0.6); }
+}
+
+/* 时间不足10秒：红色 + 闪烁 */
+.opp-timer--critical {
+  color: #fff;
+  background: var(--color-error);
+  animation: timer-critical-blink 0.5s step-end infinite;
+}
+
+@keyframes timer-critical-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 时间不足30秒（非紧急）：淡红色提示 */
 .opp-timer--warn {
   color: var(--color-error);
   background: rgba(220, 38, 38, 0.08);

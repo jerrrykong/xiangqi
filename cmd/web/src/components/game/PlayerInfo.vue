@@ -24,6 +24,7 @@ const props = defineProps<{
   level?: string
   time?: number
   isTurn?: boolean
+  isCritical?: boolean
   showTimer?: boolean
   online?: boolean
 }>()
@@ -66,7 +67,7 @@ const isOnline = computed(() => props.online !== false)
       </div>
       <div v-if="level" class="opp-level">{{ level }}</div>
     </div>
-    <GameTimer v-if="showTimer && time !== undefined" :time="time" :warn-threshold="30" />
+    <GameTimer v-if="showTimer && time !== undefined" :time="time" :warn-threshold="30" :is-turn="isTurn" :is-critical="isCritical" />
   </div>
 </template>
 

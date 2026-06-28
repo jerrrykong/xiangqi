@@ -68,6 +68,14 @@ onMounted(() => {
 onUnmounted(() => {
   onMoveError(null as any)
   gameStore.resetGame()
+  if (lowTimeBeepTimer) {
+    clearInterval(lowTimeBeepTimer)
+    lowTimeBeepTimer = null
+  }
+  if (audioCtx) {
+    audioCtx.close()
+    audioCtx = null
+  }
 })
 
 /** 处理棋子点击（选子或吃子走棋） */
@@ -269,12 +277,12 @@ const myTime = computed(() =>
 /** 轮次指示 */
 const turnText = computed(() => {
   if (!gameStore.isGameStarted || gameStore.isGameOver) return ''
-  return gameStore.isMyTurn ? '你的回合' : '对手回合'
+  return gameStore.isMyTurn ? '⚔ 我方走棋' : '对方走棋'
 })
 
 const turnClass = computed(() => {
   if (!gameStore.isGameStarted) return ''
-  return gameStore.isMyTurn ? 'turn-red' : 'turn-black'
+  return gameStore.isMyTurn ? 'turn-my' : 'turn-opp'
 })
 
 /** 对局阶段（传给 GameControls） */
@@ -298,6 +306,50 @@ function formatTime(seconds: number): string {
   const secs = seconds % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
+
+/** Web Audio API 播放短促嘟嘟声 */
+let audioCtx: AudioContext | null = null
+function playBeep() {
+  try {
+    if (!soundEnabled.value) return
+    if (!audioCtx) audioCtx = new AudioContext()
+    const osc = audioCtx.createOscillator()
+    const gain = audioCtx.createGain()
+    osc.connect(gain)
+    gain.connect(audioCtx.destination)
+    osc.type = 'square'
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime)
+    gain.gain.setValueAtTime(0.12, audioCtx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15)
+    osc.start(audioCtx.currentTime)
+    osc.stop(audioCtx.currentTime + 0.15)
+  } catch {
+    // AudioContext not available
+  }
+}
+
+/** 己方时间是否进入紧急状态（<10秒） */
+const isMyTimeLow = computed(() => {
+  return gameStore.isGameStarted && !gameStore.isGameOver && gameStore.isMyTurn && myTime.value > 0 && myTime.value <= 10
+})
+
+/** 己方时间不足 10 秒时嘟嘟声 */
+let lowTimeBeepTimer: number | null = null
+watch(isMyTimeLow, (low) => {
+  if (low) {
+    // 每秒响一次
+    lowTimeBeepTimer = window.setInterval(() => {
+      playBeep()
+    }, 1000)
+    // 立即响第一次
+    playBeep()
+  } else {
+    if (lowTimeBeepTimer) {
+      clearInterval(lowTimeBeepTimer)
+      lowTimeBeepTimer = null
+    }
+  }
+})
 </script>
 
 <template>
@@ -306,7 +358,7 @@ function formatTime(seconds: number): string {
     <header class="game-topbar">
       <div class="topbar-info" style="margin-left: 0">
         <span class="topbar-room">房间 #{{ roomId.slice(0, 8) }}</span>
-        <span v-if="gameStore.isGameStarted" class="turn-indicator" :class="turnClass">
+        <span v-if="gameStore.isGameStarted && !gameStore.isGameOver" class="turn-indicator" :class="turnClass">
           <span class="turn-dot"></span>
           {{ turnText }}
         </span>
@@ -327,6 +379,10 @@ function formatTime(seconds: number): string {
       <div v-else-if="gameStore.isAIThinking" class="floating-banner ai-thinking">
         <div class="spinner-small"></div>
         <span>AI 正在思考...</span>
+      </div>
+      <div v-else-if="gameStore.isOpponentThinking" class="floating-banner opponent-thinking">
+        <div class="spinner-small"></div>
+        <span>对方正在思考...</span>
       </div>
       <div v-else-if="!gameStore.isGameStarted && !gameStore.isGameOver && gameStore.phase === 'waiting'" class="floating-banner waiting">
         <div class="spinner-small"></div>
@@ -350,6 +406,7 @@ function formatTime(seconds: number): string {
           :level="opponentIsAI ? 'AI' : undefined"
           :time="opponentTime"
           :is-turn="!gameStore.isMyTurn && gameStore.isGameStarted && !gameStore.isGameOver"
+          :is-critical="false"
           :show-timer="gameStore.isGameStarted"
           :online="opponentOnline"
         />
@@ -401,6 +458,7 @@ function formatTime(seconds: number): string {
           :avatar="myAvatar"
           :time="myTime"
           :is-turn="gameStore.isMyTurn && gameStore.isGameStarted && !gameStore.isGameOver"
+          :is-critical="isMyTimeLow"
           :show-timer="gameStore.isGameStarted"
           :online="true"
         />
@@ -528,19 +586,36 @@ function formatTime(seconds: number): string {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
+  font-size: var(--text-base);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
 }
 
 .turn-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
+  animation: turn-dot-pulse 1s ease-in-out infinite;
 }
 
-.turn-red { color: var(--color-error); }
-.turn-red .turn-dot { background: var(--color-error); }
-.turn-black { color: #2D3748; }
-.turn-black .turn-dot { background: #2D3748; }
+@keyframes turn-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+.turn-my {
+  color: #fff;
+  background: var(--color-error);
+}
+.turn-my .turn-dot { background: #fff; }
+
+.turn-opp {
+  color: #fff;
+  background: #374151;
+}
+.turn-opp .turn-dot { background: #9CA3AF; }
 
 .topbar-actions {
   display: flex;
@@ -595,6 +670,7 @@ function formatTime(seconds: number): string {
 
 .floating-banner.connection { background: rgba(220, 38, 38, 0.85); color: white; }
 .floating-banner.ai-thinking { background: rgba(37, 99, 235, 0.85); color: white; }
+.floating-banner.opponent-thinking { background: rgba(107, 114, 128, 0.85); color: white; }
 .floating-banner.waiting { background: rgba(37, 99, 235, 0.85); color: white; }
 .floating-banner.ready { background: rgba(5, 150, 105, 0.85); color: white; }
 

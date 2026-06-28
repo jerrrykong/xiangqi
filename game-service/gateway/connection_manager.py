@@ -31,7 +31,7 @@ class ClientConnection:
         self.ws = ws
         self.conn_id = conn_id
         self.user_id: Optional[int] = None
-        self.username: Optional[str] = None
+        self.username: str = ""
         self.nickname: str = ""
         self.avatar: str = ""
         self.state = ConnectionState.UNAUTHENTICATED

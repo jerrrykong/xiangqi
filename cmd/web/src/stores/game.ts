@@ -106,6 +106,16 @@ export const useGameStore = defineStore('game', () => {
   // 对手在线状态
   const opponentOnline = ref(true)
 
+  // 对手是否正在思考（PvP 中对方走棋时显示；AI 对局由 isAIThinking 单独控制）
+  const isOpponentThinking = computed(() => {
+    return (
+      isGameStarted.value &&
+      !isGameOver.value &&
+      !isMyTurn.value &&
+      !isAIThinking.value
+    )
+  })
+
   // 计时器
   let timerInterval: number | null = null
 
@@ -649,6 +659,13 @@ export const useGameStore = defineStore('game', () => {
       drawRequestFrom.value = null
       moveHistory.value = []
       phase.value = 'playing'
+      // 清理上一局的视觉元素
+      selectedPosition.value = null
+      validMoves.value = []
+      lastMove.value = null
+      isInCheck.value = false
+      checkPosition.value = null
+      animatingMove.value = null
       iAmReady.value = false
       opponentReady.value = false
       iWantRematch.value = false
@@ -1140,11 +1157,21 @@ export const useGameStore = defineStore('game', () => {
 
     isGameStarted.value = data.phase === 'playing'
     isGameOver.value = false
-    isAIThinking.value = false
     animatingMove.value = null
     phase.value = data.phase || 'waiting'
     showResultDialog.value = false
     drawRequestFrom.value = null
+
+    // 恢复 AI 思考提示状态：对局中且非己方回合且对手是 AI
+    const isPlaying = data.phase === 'playing'
+    const myTurn = currentTurn.value === yourColor.value
+    if (isPlaying && !myTurn) {
+      const oppPlayer = data.your_side === 'red' ? data.black_player : data.red_player
+      const isAIOpponent = !!(oppPlayer && (oppPlayer as any).is_bot)
+      isAIThinking.value = isAIOpponent
+    } else {
+      isAIThinking.value = false
+    }
 
     // 恢复对手在线状态
     const opponentPlayer = data.your_side === 'red' ? data.black_player : data.red_player
@@ -1316,6 +1343,7 @@ export const useGameStore = defineStore('game', () => {
     isInCheck,
     checkPosition,
     isAIThinking,
+    isOpponentThinking,
     drawRequestFrom,
     opponentOnline,
     moveHistory,

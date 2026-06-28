@@ -365,7 +365,7 @@ def board_from_array(board_array: list[list[int]]) -> Board:
     return Board(board_array)
 
 
-def board_to_fen(board: Board, turn: Color = Color.RED) -> str:
+def board_to_fen(board: Board, turn: Color) -> str:
     """将棋盘转换为 FEN 格式 (简化版)
     
     FEN 行顺序: 从棋盘顶部(row 0, 黑方底线) 到底部(row 9, 红方底线)

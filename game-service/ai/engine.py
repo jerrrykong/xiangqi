@@ -513,6 +513,12 @@ class ChessAI:
                          best_score=result.score,
                          nodes=self.nodes_searched,
                          method="mtdf" if (self.use_mtdf and d >= 3) else "ab")
+                    # 已找到将杀着法，无需继续加深搜索
+                    if result.is_checkmate and abs(result.score) >= self.MATE_SCORE - 1000:
+                        _log("info", "ai_checkmate_found_early_stop",
+                             depth=d,
+                             score=result.score)
+                        break
                 # 检查是否超时
                 elapsed = (time.time() - start_time) * 1000
                 if elapsed > self._time_limit_ms:
@@ -1067,13 +1073,33 @@ class ChessAI:
         """着法排序 (Move Ordering)
         
         优先顺序:
-        1. 吃子着法 (按吃子价值排序)
-        2. Killer 着法
-        3. 其他着法
+        1. 将军着法（最高优先级，确保杀着优先评估）
+        2. 吃子着法 (按吃子价值排序)
+        3. Killer 着法 / PV 着法
+        4. 历史启发性着法
         """
+        opponent = Color.BLACK if turn == Color.RED else Color.RED
+
+        # 预计算哪些着法是将军着法（使用克隆棋盘避免影响搜索状态）
+        check_moves: Dict[Tuple[int, int, int, int], bool] = {}
+        temp_board = board.clone()
+        temp_wc = WinChecker(temp_board)
+        for m in moves:
+            captured = temp_board.make_move(m.to_move())
+            try:
+                gives_check = temp_wc.is_king_exposed(opponent)
+                check_moves[(m.from_col, m.from_row, m.to_col, m.to_row)] = gives_check
+            finally:
+                temp_board.unmake_move(m.to_move(), captured)
+
         def move_priority(m: LegalMove) -> Tuple[int, int]:
             priority = 0
-            
+            move_key = (m.from_col, m.from_row, m.to_col, m.to_row)
+
+            # 将军着法最高优先级
+            if check_moves.get(move_key, False):
+                priority += 30000
+
             # 吃子着法优先
             if m.captured >= 0:
                 captured_value = self.evaluator._get_base_value(
@@ -1083,7 +1109,7 @@ class ChessAI:
                     PieceType(m.piece % 10)
                 )
                 # MVV-LVA: 吃大子优先
-                priority = int(captured_value - moving_value * 0.5 + 10000)
+                priority += int(captured_value - moving_value * 0.5 + 10000)
                 if self._is_bad_opening_exchange(m, turn):
                     priority -= 6000
             else:
@@ -1093,12 +1119,12 @@ class ChessAI:
                 # Killer 着法
                 for km in self._killer_moves[depth]:
                     if km.from_col == m.from_col and km.from_row == m.from_row:
-                        priority = 5000
+                        priority = max(priority, 5000)
                         break
                 priority += self._history_heuristic.get(m.to_move(), 0)
-            
+
             return (priority, 0)
-        
+
         return sorted(moves, key=move_priority, reverse=True)
     
     def _add_killer_move(self, depth: int, move: Move) -> None:

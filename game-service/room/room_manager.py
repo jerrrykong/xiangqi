@@ -497,7 +497,7 @@ class RoomManager:
             room.timer.start("red")
 
             # Broadcast game_start
-            fen = board_to_fen(room.game_state.board)
+            fen = board_to_fen(room.game_state.board,room.game_state.current_player)
 
             # Build player info dicts (including AI for PvE rooms)
             red_info = self._player_info(room.red_player)
@@ -576,7 +576,7 @@ class RoomManager:
 
     async def apply_player_move(self, room: Room, move: Move) -> None:
         """Apply a player's move. Called by RoomHandler."""
-        logger.debug(f"Applying move in room={room.room_id}: ({move.from_row},{move.from_col})->({move.to_row},{move.to_col})")
+        logger.info(f"Applying move in room={room.room_id}: ({move.from_row},{move.from_col})->({move.to_row},{move.to_col})")
         await self._apply_and_broadcast_move(room, move, "opponent_move")
         room.move_event.set()
 
@@ -622,7 +622,7 @@ class RoomManager:
         if room.timer:
             room.timer.switch_side()
 
-        fen = board_to_fen(room.game_state.board)
+        fen = board_to_fen(room.game_state.board, room.game_state.current_player)
         captured_info = None
         if room.game_state.history:
             last_record = room.game_state.history[-1]
@@ -667,7 +667,7 @@ class RoomManager:
         if room.timer:
             room.timer.switch_side()
 
-        fen = board_to_fen(room.game_state.board)
+        fen = board_to_fen(room.game_state.board, room.game_state.current_player)
 
         # Find who just moved (the player whose turn it was)
         current_color = room.game_state.current_player
@@ -748,7 +748,7 @@ class RoomManager:
         )
 
         # Broadcast game_over with rating changes
-        fen = board_to_fen(room.game_state.board) if room.game_state else ""
+        fen = board_to_fen(room.game_state.board, room.game_state.current_player) if room.game_state else ""
         last_move = None
         if room.game_state and room.game_state.history:
             last_record = room.game_state.history[-1]

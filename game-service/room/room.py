@@ -56,10 +56,10 @@ class Room:
     black_player: Optional[PlayerSession] = None
 
     # Game state (initialized when both players are ready)
-    game_state: Optional[ChessGame] = None
+    game_state: ChessGame|None = None
 
     # Timer
-    timer: Optional[MoveTimer] = None
+    timer: MoveTimer|None = None
     initial_time: int = 600
     increment: int = 10
     started_at: float = 0.0
