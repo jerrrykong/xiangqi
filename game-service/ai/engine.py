@@ -1056,22 +1056,65 @@ class ChessAI:
             king_col, king_row: 对方将/帅位置
         """
         if piece_type == PieceType.ROOK or piece_type == PieceType.CANNON:
-            # 车/炮: 需与将同列或同行
             return to_col == king_col or to_row == king_row
         elif piece_type == PieceType.KNIGHT:
-            # 马: 需与将成 L 形
             dc = abs(to_col - king_col)
             dr = abs(to_row - king_row)
             return (dc == 2 and dr == 1) or (dc == 1 and dr == 2)
         elif piece_type == PieceType.PAWN:
-            # 兵/卒: 将必在邻位 (允许假阳性 — 后续靠 make_move 验证)
             return abs(to_col - king_col) + abs(to_row - king_row) <= 1
         elif piece_type == PieceType.KING:
-            # 将/帅: 仅飞将 (同列)
             return to_col == king_col
         else:
-            # 士/相: 几乎只能邻位威胁
             return abs(to_col - king_col) + abs(to_row - king_row) <= 1
+
+    @staticmethod
+    def _is_king_attacked_by(
+        board: Board,
+        attacker_color: Color,
+        king_col: int,
+        king_row: int,
+    ) -> bool:
+        """检查 (king_col,king_row) 处的将/帅是否被 attacker_color 方攻击。
+
+        关键优化: 只检查攻击方己方棋子能否攻击将/帅，使用
+        MoveGenerator.can_attack 定向检测，避免全盘扫描和全量着法生成。
+
+        复杂度: O(攻击方棋子数 × 路径长度) ≈ O(己方棋子) << O(90+对方着法)
+
+        Args:
+            board: 当前棋盘 (make_move 之后的状态)
+            attacker_color: 攻击方颜色 (刚走完棋的一方)
+            king_col, king_row: 被攻击方将/帅位置
+
+        Returns:
+            True 表示 king 被攻击
+        """
+        gen = MoveGenerator(board)
+
+        # 1) 检查攻击方所有棋子能否直接攻击将/帅
+        attacker_pieces = board.get_all_pieces(attacker_color)
+        for col, row, _ in attacker_pieces:
+            if gen.can_attack(col, row, king_col, king_row):
+                return True
+
+        # 2) 飞将检测: 双方将帅同列且中间无棋子
+        opponent = Color.BLACK if attacker_color == Color.RED else Color.RED
+        attacker_king_pos = board.find_king(attacker_color)
+        opponent_king_pos = board.find_king(opponent)
+        if attacker_king_pos is not None and opponent_king_pos is not None:
+            ak_col, ak_row = attacker_king_pos
+            ok_col, ok_row = opponent_king_pos
+            if ak_col == ok_col:
+                min_r, max_r = min(ak_row, ok_row), max(ak_row, ok_row)
+                blocked = any(
+                    board.get(ak_col, r) >= 0
+                    for r in range(min_r + 1, max_r)
+                )
+                if not blocked:
+                    return True
+
+        return False
 
     def _generate_quiescence_moves(self, board: Board, color: Color) -> List[LegalMove]:
         """生成清算搜索的候选着法：吃子着法 + 将军着法。
@@ -1079,34 +1122,36 @@ class ChessAI:
         防止地平线效应: 仅扩展吃子着法会漏掉非吃子的将军威胁。
         通过包含将军着法，引擎能在清算搜索中看到更深层的杀棋威胁。
 
-        性能优化: 使用 _could_check 启发式预筛选，只有通过筛选的非吃子
-        着法才做 make_move + is_king_exposed 验证，避免 O(n²) 开销。
+        性能优化:
+        - _could_check 预筛: O(1) 排除明显不可将军的着法
+        - _is_king_attacked_by: 仅查己方棋子，O(己方棋子) 替代 O(全盘)
+          的 is_king_exposed，消除每节点 O(n²) 开销
         """
         generator = MoveGenerator(board)
         moves = generator.generate_all_moves(color)
         opponent = Color.BLACK if color == Color.RED else Color.RED
 
-        # 预取对方将/帅位置用于快速筛选
-        king_pos = board.find_king(opponent)
+        # 预取对方将/帅位置用于筛选
+        opponent_king = board.find_king(opponent)
 
         result: List[LegalMove] = []
         for m in moves:
             if m.captured >= 0:
                 # 吃子着法: 高优先级
                 result.append(m)
-            elif king_pos is not None:
-                # 非吃子: 先启发式判断是否可能将军，通过后再验证
+            elif opponent_king is not None:
                 piece_type = PieceType(m.piece % 10)
                 if not self._could_check(
                     piece_type, m.to_col, m.to_row,
-                    king_pos[0], king_pos[1],
+                    opponent_king[0], opponent_king[1],
                 ):
                     continue
                 move = m.to_move()
                 captured = board.make_move(move)
                 try:
-                    wc = WinChecker(board)
-                    gives_check = wc.is_king_exposed(opponent)
+                    gives_check = self._is_king_attacked_by(
+                        board, color, opponent_king[0], opponent_king[1],
+                    )
                 finally:
                     board.unmake_move(move, captured)
                 if gives_check:

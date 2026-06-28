@@ -431,6 +431,128 @@ class MoveGenerator:
             return (BLACK_PALACE_LEFT <= col <= BLACK_PALACE_RIGHT and
                     BLACK_PALACE_TOP <= row <= BLACK_PALACE_BOTTOM)
 
+    # ── can_attack 系列: O(1)~O(9) 检查指定棋子能否攻击目标格 ──
+
+    def can_attack(self, col: int, row: int, target_col: int, target_row: int) -> bool:
+        """检查 (col,row) 的棋子能否直接攻击 (target_col,target_row)。
+
+        与 generate_piece_moves 不同，此方法不生成全部着法，
+        而是定向检查单目标，复杂度 O(路径长度) 而非 O(全部可能着法)。
+        """
+        piece = self.board.get(col, row)
+        if piece < 0:
+            return False
+        ptype = PieceType(piece % 10)
+        color = get_color_from_piece(piece)
+
+        handlers = {
+            PieceType.ROOK: self._can_rook_attack,
+            PieceType.CANNON: self._can_cannon_attack,
+            PieceType.KNIGHT: self._can_knight_attack,
+            PieceType.PAWN: self._can_pawn_attack,
+            PieceType.KING: self._can_king_attack,
+            PieceType.ADVISOR: self._can_advisor_attack,
+            PieceType.BISHOP: self._can_bishop_attack,
+        }
+        handler = handlers.get(ptype)
+        if handler:
+            return handler(col, row, target_col, target_row, color)
+        return False
+
+    def _can_rook_attack(self, col: int, row: int,
+                         tc: int, tr: int, _color: Color) -> bool:
+        """车：同行或同列，且路径上无阻挡。"""
+        if col != tc and row != tr:
+            return False
+        return self._line_is_clear(col, row, tc, tr)
+
+    def _can_cannon_attack(self, col: int, row: int,
+                           tc: int, tr: int, _color: Color) -> bool:
+        """炮：同行或同列，且路径上恰好有一个炮架。"""
+        if col != tc and row != tr:
+            return False
+        blockers = 0
+        if col == tc:
+            rng = range(row + 1, tr) if tr > row else range(tr + 1, row)
+            for r in rng:
+                if self.board.get(col, r) >= 0:
+                    blockers += 1
+        else:
+            rng = range(col + 1, tc) if tc > col else range(tc + 1, col)
+            for c in rng:
+                if self.board.get(c, row) >= 0:
+                    blockers += 1
+        return blockers == 1
+
+    def _can_knight_attack(self, col: int, row: int,
+                           tc: int, tr: int, _color: Color) -> bool:
+        """马：日字形 L 路径，且马腿未被蹩。"""
+        dc = abs(tc - col)
+        dr = abs(tr - row)
+        if not ((dc == 2 and dr == 1) or (dc == 1 and dr == 2)):
+            return False
+        if dc == 2:
+            leg_col = col + (1 if tc > col else -1)
+            leg_row = row
+        else:
+            leg_col = col
+            leg_row = row + (1 if tr > row else -1)
+        return self.board.is_empty(leg_col, leg_row)
+
+    def _can_pawn_attack(self, col: int, row: int,
+                         tc: int, tr: int, color: Color) -> bool:
+        """兵/卒：前进一步；过河后可横移一步。"""
+        if color == Color.RED:
+            if tc == col and tr == row - 1:
+                return True
+            if row <= RIVER_ROW and row == tr and abs(tc - col) == 1:
+                return True
+        else:
+            if tc == col and tr == row + 1:
+                return True
+            if row > RIVER_ROW and row == tr and abs(tc - col) == 1:
+                return True
+        return False
+
+    def _can_king_attack(self, col: int, row: int,
+                         tc: int, tr: int, _color: Color) -> bool:
+        """将/帅：仅飞将 — 同列且中间无棋子。"""
+        if col != tc:
+            return False
+        return self._line_is_clear(col, row, tc, tr)
+
+    def _can_advisor_attack(self, col: int, row: int,
+                            tc: int, tr: int, color: Color) -> bool:
+        """士/仕：斜走一格，且在己方九宫内。"""
+        if abs(tc - col) != 1 or abs(tr - row) != 1:
+            return False
+        return self._is_in_palace(tc, tr, color)
+
+    def _can_bishop_attack(self, col: int, row: int,
+                           tc: int, tr: int, color: Color) -> bool:
+        """象/相：田字对角，象眼无阻，不过河。"""
+        if abs(tc - col) != 2 or abs(tr - row) != 2:
+            return False
+        eye_col = (col + tc) // 2
+        eye_row = (row + tr) // 2
+        if not self.board.is_empty(eye_col, eye_row):
+            return False
+        if color == Color.RED and tr <= RIVER_ROW:
+            return False
+        if color == Color.BLACK and tr > RIVER_ROW:
+            return False
+        return True
+
+    def _line_is_clear(self, c1: int, r1: int, c2: int, r2: int) -> bool:
+        """检查 (c1,r1) 到 (c2,r2) 之间路径是否全空（不含端点）。"""
+        if c1 == c2:
+            rng = range(r1 + 1, r2) if r2 > r1 else range(r2 + 1, r1)
+            return all(self.board.get(c1, r) < 0 for r in rng)
+        elif r1 == r2:
+            rng = range(c1 + 1, c2) if c2 > c1 else range(c2 + 1, c1)
+            return all(self.board.get(c, r1) < 0 for c in rng)
+        return True
+
     def generate_king_moves(self, col: int, row: int, color: Color) -> list[LegalMove]:
         """生成将/帅的着法 (公开方法)"""
         piece = self.board.get(col, row)
