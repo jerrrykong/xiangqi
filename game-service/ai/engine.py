@@ -936,6 +936,15 @@ class ChessAI:
                 break
 
         self._store_transposition(tt_key, best_score, depth, alpha_orig, beta, best_move)
+        # Defensive: if best_score is still -inf, all moves were skipped (all self-checks
+        # or timed out). Log warning for debugging and return the evaluation instead.
+        if best_score == -self.INFINITY:
+            _log("warning", "ai_negamax_all_moves_filtered",
+                 turn=turn.value,
+                 depth=depth,
+                 legal_moves_count=len(legal_moves),
+                 sorted_moves_count=len(sorted_moves))
+            return self.evaluator.evaluate(board, turn)
         return best_score
 
     def _quiescence(
@@ -945,9 +954,11 @@ class ChessAI:
         alpha: float,
         beta: float,
     ) -> float:
-        """静态清算搜索，扩展吃子走法直到局面安静
-        
-        优化: 被将军时保留全部着法 (借鉴 vliang-cpp)，避免误判。
+        """静态清算搜索，扩展吃子及将军着法直到局面安静。
+
+        关键优化:
+        - 未被将军时: 扩展吃子着法 + 将军着法，防止地平线效应导致漏杀
+        - 被将军时: 保留全部合法着法 (借鉴 vliang-cpp)，避免误判
         """
         if self._is_time_up():
             return self.evaluator.evaluate(board, turn)
@@ -959,7 +970,7 @@ class ChessAI:
         is_in_check = win_checker.is_king_exposed(turn)
 
         if not is_in_check:
-            # 未被将军: 仅扩展吃子着法
+            # 未被将军: 扩展吃子着法 + 将军着法
             # Delta cutoff
             MAX_CAPTURE_VALUE = 900.0
             if stand_pat + MAX_CAPTURE_VALUE < alpha:
@@ -969,16 +980,11 @@ class ChessAI:
             if alpha < stand_pat:
                 alpha = stand_pat
 
-            capture_moves = self._generate_capture_moves(board, turn)
-            if not capture_moves:
+            search_moves = self._generate_quiescence_moves(board, turn)
+            if not search_moves:
                 return stand_pat
-
-            search_moves = capture_moves
         else:
             # 被将军: 必须找到逃避着法，保留全部合法着法
-            if stand_pat < -self.MATE_SCORE // 2:
-                return self.evaluator.evaluate(board, turn)
-
             # 生成全部合法着法
             move_generator = MoveGenerator(board)
             pseudo_moves = move_generator.generate_all_moves(turn)
@@ -1011,6 +1017,7 @@ class ChessAI:
         return alpha
 
     def _generate_capture_moves(self, board: Board, color: Color) -> List[LegalMove]:
+        """生成所有吃子着法，按 MVV-LVA 排序。"""
         generator = MoveGenerator(board)
         moves = generator.generate_all_moves(color)
         capture_moves = [m for m in moves if m.captured >= 0]
@@ -1020,6 +1027,44 @@ class ChessAI:
                 self.evaluator._get_base_value(PieceType(m.captured % 10)) -
                 self.evaluator._get_base_value(PieceType(m.piece % 10)) * 0.5,
                 0,
+            ),
+            reverse=True,
+        )
+
+    def _generate_quiescence_moves(self, board: Board, color: Color) -> List[LegalMove]:
+        """生成清算搜索的候选着法：吃子着法 + 将军着法。
+
+        防止地平线效应: 仅扩展吃子着法会漏掉非吃子的将军威胁。
+        通过包含将军着法，引擎能在清算搜索中看到更深层的杀棋威胁。
+        """
+        generator = MoveGenerator(board)
+        moves = generator.generate_all_moves(color)
+        opponent = Color.BLACK if color == Color.RED else Color.RED
+
+        result: List[LegalMove] = []
+        for m in moves:
+            if m.captured >= 0:
+                # 吃子着法: 高优先级
+                result.append(m)
+            else:
+                # 非吃子: 检测是否将军
+                move = m.to_move()
+                captured = board.make_move(move)
+                try:
+                    wc = WinChecker(board)
+                    gives_check = wc.is_king_exposed(opponent)
+                finally:
+                    board.unmake_move(move, captured)
+                if gives_check:
+                    result.append(m)
+
+        # 排序: 吃子按 MVV-LVA，将军着法排后面
+        return sorted(
+            result,
+            key=lambda m: (
+                self.evaluator._get_base_value(PieceType(m.captured % 10))
+                if m.captured >= 0
+                else 0,
             ),
             reverse=True,
         )
