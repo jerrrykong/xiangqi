@@ -346,6 +346,8 @@ class ChessAI:
     # 评估正向极值
     MATE_SCORE = 100000
     INFINITY = float('inf')
+    # 清算搜索最大深度: 防止 perpetual check 导致无限递归
+    MAX_QDEPTH = 8
     # Null-move reduction steps
     NULL_MOVE_REDUCTION = 2
     
@@ -603,7 +605,7 @@ class ChessAI:
         """
         # 检查深度或超时
         if depth <= 0:
-            return self._quiescence(board, turn, alpha, beta)
+            return self._quiescence(board, turn, alpha, beta, 0)
 
         if self._is_time_up():
             return alpha
@@ -739,13 +741,19 @@ class ChessAI:
         turn: Color,
         alpha: float,
         beta: float,
+        qdepth: int = 0,
     ) -> float:
         """静态清算搜索，扩展吃子及将军着法直到局面安静。
 
         关键优化:
         - 未被将军时: 扩展吃子着法 + 将军着法，防止地平线效应导致漏杀
         - 被将军时: 保留全部合法着法，避免误判
+        - qdepth 硬限制防止双方互相将军时无限递归
         """
+        # 硬深度限制: 防止 perpetual check 导致的无限递归
+        if qdepth >= self.MAX_QDEPTH:
+            return self.evaluator.evaluate(board, turn)
+
         if self._is_time_up():
             return self.evaluator.evaluate(board, turn)
 
@@ -787,7 +795,7 @@ class ChessAI:
             captured = board.make_move(move)
             try:
                 opponent = Color.BLACK if turn == Color.RED else Color.RED
-                score = -self._quiescence(board, opponent, -beta, -alpha)
+                score = -self._quiescence(board, opponent, -beta, -alpha, qdepth + 1)
             finally:
                 board.unmake_move(move, captured)
             self.nodes_searched += 1
