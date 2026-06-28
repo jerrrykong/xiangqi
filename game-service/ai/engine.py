@@ -1039,23 +1039,69 @@ class ChessAI:
             reverse=True,
         )
 
+    @staticmethod
+    def _could_check(
+        piece_type: PieceType,
+        to_col: int, to_row: int,
+        king_col: int, king_row: int,
+    ) -> bool:
+        """快速启发式: 移动到的目标位置是否可能将军？
+
+        基于棋子类型与目标位置的几何关系做 O(1) 预判。
+        允许假阳性但杜绝假阴性，漏判会导致漏杀。
+
+        Args:
+            piece_type: 移动棋子的类型
+            to_col, to_row: 棋子目标位置
+            king_col, king_row: 对方将/帅位置
+        """
+        if piece_type == PieceType.ROOK or piece_type == PieceType.CANNON:
+            # 车/炮: 需与将同列或同行
+            return to_col == king_col or to_row == king_row
+        elif piece_type == PieceType.KNIGHT:
+            # 马: 需与将成 L 形
+            dc = abs(to_col - king_col)
+            dr = abs(to_row - king_row)
+            return (dc == 2 and dr == 1) or (dc == 1 and dr == 2)
+        elif piece_type == PieceType.PAWN:
+            # 兵/卒: 将必在邻位 (允许假阳性 — 后续靠 make_move 验证)
+            return abs(to_col - king_col) + abs(to_row - king_row) <= 1
+        elif piece_type == PieceType.KING:
+            # 将/帅: 仅飞将 (同列)
+            return to_col == king_col
+        else:
+            # 士/相: 几乎只能邻位威胁
+            return abs(to_col - king_col) + abs(to_row - king_row) <= 1
+
     def _generate_quiescence_moves(self, board: Board, color: Color) -> List[LegalMove]:
         """生成清算搜索的候选着法：吃子着法 + 将军着法。
 
         防止地平线效应: 仅扩展吃子着法会漏掉非吃子的将军威胁。
         通过包含将军着法，引擎能在清算搜索中看到更深层的杀棋威胁。
+
+        性能优化: 使用 _could_check 启发式预筛选，只有通过筛选的非吃子
+        着法才做 make_move + is_king_exposed 验证，避免 O(n²) 开销。
         """
         generator = MoveGenerator(board)
         moves = generator.generate_all_moves(color)
         opponent = Color.BLACK if color == Color.RED else Color.RED
+
+        # 预取对方将/帅位置用于快速筛选
+        king_pos = board.find_king(opponent)
 
         result: List[LegalMove] = []
         for m in moves:
             if m.captured >= 0:
                 # 吃子着法: 高优先级
                 result.append(m)
-            else:
-                # 非吃子: 检测是否将军
+            elif king_pos is not None:
+                # 非吃子: 先启发式判断是否可能将军，通过后再验证
+                piece_type = PieceType(m.piece % 10)
+                if not self._could_check(
+                    piece_type, m.to_col, m.to_row,
+                    king_pos[0], king_pos[1],
+                ):
+                    continue
                 move = m.to_move()
                 captured = board.make_move(move)
                 try:
