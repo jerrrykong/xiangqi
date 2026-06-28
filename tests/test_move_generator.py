@@ -164,9 +164,38 @@ class TestBishopMoves:
         piece = board.get(2, 9)
         moves = gen._generate_bishop_moves(2, 9, piece, Color.RED)
         
-        # 不能移动到 row < 5 (过河)
+        # 不能移动到 row <= 4 (过河), 即 row >= 5 才合法
         for move in moves:
             assert move.to_row >= 5
+
+    def test_black_bishop_cannot_cross_river(self):
+        """测试黑象不能过河，但可以到达 row=4 (己方最后一行)"""
+        arr = [[PIECE_EMPTY] * 9 for _ in range(10)]
+        arr[2][4] = PIECE_BLACK_BISHOP  # 黑象在 (4,2)
+        board = board_from_array(arr)
+        
+        gen = MoveGenerator(board)
+        piece = board.get(4, 2)
+        moves = gen._generate_bishop_moves(4, 2, piece, Color.BLACK)
+        
+        # 所有着法必须在 row <= 4 (黑方领地)
+        for move in moves:
+            assert move.to_row <= 4, f"黑象移动到 row={move.to_row}, 应 <= 4"
+
+    def test_black_bishop_can_capture_at_row_4(self):
+        """测试黑象可以吃到 row=4 的对方棋子（不会错误判为过河）"""
+        arr = [[PIECE_EMPTY] * 9 for _ in range(10)]
+        arr[2][4] = PIECE_BLACK_BISHOP  # 黑象在 (4,2)
+        arr[4][6] = PIECE_RED_KNIGHT    # 红马在 (6,4) — 可被吃
+        board = board_from_array(arr)
+        
+        gen = MoveGenerator(board)
+        piece = board.get(4, 2)
+        moves = gen._generate_bishop_moves(4, 2, piece, Color.BLACK)
+        
+        # 应能吃到 (6,4) 的红马
+        captures = [m for m in moves if m.to_col == 6 and m.to_row == 4]
+        assert len(captures) >= 1, f"黑象未能生成吃(6,4)红马的着法, moves={[(m.to_col, m.to_row) for m in moves]}"
 
 
 class TestKnightMoves:

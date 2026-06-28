@@ -69,6 +69,9 @@ class RoomManager:
         self._disconnect_checker_task: Optional[asyncio.Task] = None
         # Flag set during application shutdown to avoid DB writes
         self.shutting_down: bool = False
+        # Debug flag: when True, _save_game_result will raise an exception after
+        # computing ratings (simulates DB write failure for testing)
+        self._debug_crash_on_save: bool = False
 
     # ---- Room Creation ----
 
@@ -742,12 +745,16 @@ class RoomManager:
         elif game_result in (GameResult.BLACK_WINS, GameResult.RED_RESIGN, GameResult.RED_TIMEOUT):
             winner = "black"
 
-        # Save to DB and calculate rating changes
-        red_rating_change, black_rating_change = await self._save_game_result(
-            room, winner, reason, is_escape
-        )
+        # Calculate rating changes first (before DB save, in case save fails)
+        red_rating_change, black_rating_change = 0, 0
+        try:
+            red_rating_change, black_rating_change = await self._save_game_result(
+                room, winner, reason, is_escape
+            )
+        except Exception as e:
+            logger.error(f"Failed to save game result for room={room.room_id}: {e}", exc_info=True)
 
-        # Broadcast game_over with rating changes
+        # Broadcast game_over with rating changes (always send, even if DB save fails)
         fen = board_to_fen(room.game_state.board, room.game_state.current_player) if room.game_state else ""
         last_move = None
         if room.game_state and room.game_state.history:
@@ -857,15 +864,26 @@ class RoomManager:
                 is_escape=is_escape and winner != "black",
             )
 
+            # DEBUG: crash-on-save simulation — raises after ratings computed
+            if self._debug_crash_on_save:
+                logger.warning(f"[DEBUG] Simulating DB save crash for room={room.room_id}")
+                raise RuntimeError(f"DEBUG: simulated DB crash in _save_game_result for room={room.room_id}")
+
             # Update ELO in DB
-            await self.elo_repo.update_rating(
-                red_user_id, red_rating_after,
-                red_elo["games_count"] + 1,
-            )
-            await self.elo_repo.update_rating(
-                black_user_id, black_rating_after,
-                black_elo["games_count"] + 1,
-            )
+            try:
+                await self.elo_repo.update_rating(
+                    red_user_id, red_rating_after,
+                    red_elo["games_count"] + 1,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update red ELO rating for user={red_user_id}: {e}")
+            try:
+                await self.elo_repo.update_rating(
+                    black_user_id, black_rating_after,
+                    black_elo["games_count"] + 1,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update black ELO rating for user={black_user_id}: {e}")
 
             # Create ELO history
             try:
@@ -879,15 +897,18 @@ class RoomManager:
                 (room.red_player, red_rating_change, red_rating_after),
                 (room.black_player, black_rating_change, black_rating_after),
             ]:
-                if player and player.is_connected:
-                    await player.send({
-                        "type": "rating_update",
-                        "data": {
-                            "rating": new_rating,
-                            "change": change,
-                            "games_count": (red_elo if player.side == "red" else black_elo)["games_count"] + 1,
-                        },
-                    })
+                try:
+                    if player and player.is_connected:
+                        await player.send({
+                            "type": "rating_update",
+                            "data": {
+                                "rating": new_rating,
+                                "change": change,
+                                "games_count": (red_elo if player.side == "red" else black_elo)["games_count"] + 1,
+                            },
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to send rating_update to {player.side}: {e}")
 
         # Save game history
         try:

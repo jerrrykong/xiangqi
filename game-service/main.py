@@ -13,6 +13,15 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+# Load .env before any config (project root takes priority)
+from dotenv import load_dotenv
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_dotenv_path = os.path.join(_project_root, ".env")
+if os.path.exists(_dotenv_path):
+    load_dotenv(_dotenv_path)
+    # Avoid leaking vars into module scope
+    del _project_root, _dotenv_path
+
 # Add game-service root to Python path
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -430,6 +439,146 @@ async def health_check():
         "online_users": connection_manager.online_count if connection_manager else 0,
         "active_rooms": len(room_manager.rooms) if room_manager else 0,
     }
+
+
+# ---- Debug Endpoints (仅 GS_DEBUG_ENABLE=1 时可用) ----
+
+def _is_debug_enabled() -> bool:
+    """Check if debug mode is enabled via environment variable."""
+    return os.environ.get("GS_DEBUG_ENABLE", "0") == "1"
+
+
+@app.post("/api/debug/trigger")
+async def debug_trigger(request: Request):
+    """Trigger debug scenarios for testing error handling.
+
+    Requires GS_DEBUG_ENABLE=1 environment variable.
+
+    Actions:
+      - force_timeout: { room_id, side }  立即触发走棋超时
+      - force_disconnect: { user_id }      模拟玩家断线
+      - crash_save: { enable: true/false } 切换 DB 保存异常模拟
+      - list_rooms: {}                     列出所有活跃房间
+    """
+    if not _is_debug_enabled():
+        return Response(
+            content=json.dumps({"error": "Debug mode not enabled. Set GS_DEBUG_ENABLE=1"}),
+            status_code=403,
+            media_type="application/json",
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return Response(
+            content=json.dumps({"error": "Invalid JSON body"}),
+            status_code=400,
+            media_type="application/json",
+        )
+
+    action = body.get("action", "")
+    logger.warning(f"[DEBUG] Trigger action: {action}, body={body}")
+
+    # ---- list_rooms ----
+    if action == "list_rooms":
+        rooms_info = []
+        for room_id, room in room_manager.rooms.items():
+            rooms_info.append({
+                "room_id": room_id,
+                "phase": room.phase.name if room.phase else "unknown",
+                "room_type": room.room_type.name if room.room_type else "unknown",
+                "red_user_id": room.red_player.user_id if room.red_player else None,
+                "black_user_id": room.black_player.user_id if room.black_player else None,
+                "red_connected": room.red_player.is_connected if room.red_player else False,
+                "black_connected": room.black_player.is_connected if room.black_player else False,
+                "current_side": room.game_state.current_player.name if room.game_state else None,
+                "red_remaining": room.timer.red_remaining if room.timer else 0,
+                "black_remaining": room.timer.black_remaining if room.timer else 0,
+                "game_count": room.game_count,
+            })
+        return {"rooms": rooms_info, "total": len(rooms_info)}
+
+    # ---- crash_save ----
+    if action == "crash_save":
+        enable = body.get("enable", False)
+        room_manager._debug_crash_on_save = enable
+        logger.warning(f"[DEBUG] crash_save set to: {enable}")
+        return {"status": "ok", "crash_save_enabled": enable}
+
+    # ---- force_timeout ----
+    if action == "force_timeout":
+        room_id = body.get("room_id", "")
+        side = body.get("side", "red")  # "red" or "black"
+
+        if not room_id:
+            return Response(
+                content=json.dumps({"error": "Missing room_id"}),
+                status_code=400,
+                media_type="application/json",
+            )
+
+        room = room_manager.get_room(room_id)
+        if not room:
+            return Response(
+                content=json.dumps({"error": f"Room {room_id} not found"}),
+                status_code=404,
+                media_type="application/json",
+            )
+
+        if side not in ("red", "black"):
+            return Response(
+                content=json.dumps({"error": f"Invalid side: {side}, must be 'red' or 'black'"}),
+                status_code=400,
+                media_type="application/json",
+            )
+
+        logger.warning(f"[DEBUG] Forcing timeout: room={room_id}, side={side}")
+        await room_manager._handle_timeout(room, side)
+        return {"status": "ok", "action": "force_timeout", "room_id": room_id, "side": side}
+
+    # ---- force_disconnect ----
+    if action == "force_disconnect":
+        user_id = body.get("user_id")
+        if not user_id:
+            return Response(
+                content=json.dumps({"error": "Missing user_id"}),
+                status_code=400,
+                media_type="application/json",
+            )
+
+        room = room_manager.get_user_room(user_id)
+        if not room:
+            return Response(
+                content=json.dumps({"error": f"No active room for user {user_id}"}),
+                status_code=404,
+                media_type="application/json",
+            )
+
+        # Find the user's connection and simulate disconnect
+        player = room.get_player(room.get_player_side(user_id) or "")
+        if player and player.is_connected:
+            player.disconnect()
+            logger.warning(f"[DEBUG] Forced disconnect: user={user_id}, room={room.room_id}")
+
+            # Notify opponent about disconnect
+            opponent = room.get_opponent(user_id)
+            if opponent and opponent.is_connected:
+                await opponent.send({
+                    "type": "opponent_status_change",
+                    "data": {"user_id": user_id, "online": False},
+                })
+
+            return {"status": "ok", "action": "force_disconnect", "user_id": user_id,
+                    "room_id": room.room_id}
+        else:
+            return {"status": "skipped", "reason": "Player not connected",
+                    "user_id": user_id}
+
+    return Response(
+        content=json.dumps({"error": f"Unknown action: {action}"}),
+        status_code=400,
+        media_type="application/json",
+    )
 
 
 @app.post("/internal/model/reload")

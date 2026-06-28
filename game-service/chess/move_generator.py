@@ -185,10 +185,12 @@ class MoveGenerator:
             if not self.board.is_valid_pos(new_col, new_row):
                 continue
             
-            # 检查是否过河 (红方不能到 row < 5, 黑方不能到 row >= 5)
-            if color == Color.RED and new_row < RIVER_ROW:
+            # 检查是否过河
+            # 红象不能到 row <= RIVER_ROW (rows 0-4 为黑方半场)
+            # 黑象不能到 row > RIVER_ROW (rows 5-9 为红方半场)
+            if color == Color.RED and new_row <= RIVER_ROW:
                 continue
-            if color == Color.BLACK and new_row >= RIVER_ROW:
+            if color == Color.BLACK and new_row > RIVER_ROW:
                 continue
             
             # 塞象眼检测

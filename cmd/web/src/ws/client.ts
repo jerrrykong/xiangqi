@@ -23,7 +23,10 @@ class WSClient {
 
   // === 心跳 ===
   private heartbeatInterval: number | null = null
-  private heartbeatTimeout = 30000 // 30s
+  private heartbeatPingInterval = 5000 // 5s 发送一次心跳
+  private heartbeatMissingCount = 0 // 连续未收到回复的次数
+  private maxHeartbeatMisses = 3 // 连续 3 次未收到回复视为超时
+  private heartbeatPending = false // 当前是否有一个未回复的心跳
 
   // === 连接就绪 Promise ===
   private connectResolve: (() => void) | null = null
@@ -185,6 +188,8 @@ class WSClient {
 
     // 2. pong 心跳响应 (seq=0)
     if (message.type === WSRespType.PONG) {
+      this.heartbeatPending = false
+      this.heartbeatMissingCount = 0
       return
     }
 
@@ -201,9 +206,23 @@ class WSClient {
   // === 心跳 ===
   private startHeartbeat(): void {
     this.stopHeartbeat()
+    this.heartbeatMissingCount = 0
+    this.heartbeatPending = false
     this.heartbeatInterval = window.setInterval(() => {
+      // 检查上一次 ping 是否收到 pong 回复
+      if (this.heartbeatPending) {
+        this.heartbeatMissingCount++
+        console.log(`[WS] Heartbeat miss #${this.heartbeatMissingCount}`)
+        if (this.heartbeatMissingCount >= this.maxHeartbeatMisses) {
+          console.warn('[WS] Heartbeat timeout after consecutive misses, closing connection')
+          this.handleHeartbeatTimeout()
+          return
+        }
+      }
+      // 发送新的 ping
       this.send({ type: WSMsgType.PING, seq: 0, data: {} })
-    }, this.heartbeatTimeout)
+      this.heartbeatPending = true
+    }, this.heartbeatPingInterval)
   }
 
   private stopHeartbeat(): void {
@@ -211,6 +230,24 @@ class WSClient {
       clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
     }
+    this.heartbeatPending = false
+    this.heartbeatMissingCount = 0
+  }
+
+  /**
+   * 心跳超时处理：关闭连接并触发重连
+   */
+  private handleHeartbeatTimeout(): void {
+    this.stopHeartbeat()
+    // 关闭当前 WebSocket，触发 onclose → attemptReconnect
+    if (this.ws) {
+      this.ws.close(4001, 'Heartbeat timeout')
+      this.ws = null
+    }
+    this.connectionState.value = 'disconnected'
+    this.authState.value = 'unauthenticated'
+    wsRequestManager.clearAll('Heartbeat timeout')
+    this.attemptReconnect()
   }
 
   // === 重连 (仅认证成功后断开才触发) ===
@@ -255,7 +292,76 @@ class WSClient {
   get isConnected(): boolean {
     return this.connectionState.value === 'connected'
   }
+
+  // === 调试方法 (仅 dev 环境通过 window.__wsClient 调用) ===
+
+  /**
+   * 模拟心跳超时：立即触发 handleHeartbeatTimeout，关闭连接并重连
+   * 用法：__wsClient._testHeartbeatTimeout()
+   */
+  _testHeartbeatTimeout(): void {
+    console.log('[WS Debug] Simulating heartbeat timeout...')
+    this.heartbeatMissingCount = this.maxHeartbeatMisses
+    this.heartbeatPending = true
+    this.handleHeartbeatTimeout()
+  }
+
+  /**
+   * 模拟断线：直接关闭 WebSocket（不等待心跳超时）
+   * 用法：__wsClient._testDisconnect()
+   */
+  _testDisconnect(): void {
+    console.log('[WS Debug] Simulating disconnect...')
+    this.stopHeartbeat()
+    if (this.ws) {
+      // 直接 close，不发送 close frame，模拟网络断开
+      this.ws.close(4002, 'Debug: simulate disconnect')
+      this.ws = null
+    }
+    this.connectionState.value = 'disconnected'
+    this.authState.value = 'unauthenticated'
+    wsRequestManager.clearAll('Debug disconnect')
+    this.attemptReconnect()
+  }
+
+  /**
+   * 手动触发重连
+   * 用法：__wsClient._testReconnect()
+   */
+  _testReconnect(): void {
+    console.log('[WS Debug] Triggering manual reconnect...')
+    this.attemptReconnect()
+  }
+
+  /**
+   * 获取当前调试状态
+   * 用法：__wsClient._testGetStatus()
+   */
+  _testGetStatus(): Record<string, unknown> {
+    return {
+      connectionState: this.connectionState.value,
+      authState: this.authState.value,
+      heartbeat: {
+        pending: this.heartbeatPending,
+        missingCount: this.heartbeatMissingCount,
+        maxMisses: this.maxHeartbeatMisses,
+        pingInterval: this.heartbeatPingInterval,
+      },
+      reconnect: {
+        attempts: this.reconnectAttempts,
+        maxAttempts: this.maxReconnectAttempts,
+        shouldReconnect: this.shouldReconnect,
+      },
+      wsReadyState: this.ws?.readyState ?? null,
+      wsUrl: this.url,
+    }
+  }
 }
 
 // 全局单例
 export const wsClient = new WSClient()
+
+// 开发环境暴露到 window 供调试
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  ;(window as unknown as Record<string, unknown>).__wsClient = wsClient
+}
