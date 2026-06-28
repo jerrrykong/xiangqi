@@ -37,8 +37,22 @@ class PlayerSession:
 
     @property
     def disconnect_duration(self) -> float:
-        """Seconds since disconnected. 0 if connected."""
+        """Seconds since disconnected. 0 if connected.
+
+        Includes a defensive auto-heal: if disconnected_at is set but the player
+        appears connected, clear the stale timestamp.
+        """
         if self.connected or self.disconnected_at is None:
+            return 0.0
+        # Defensive: inconsistent state — player.is_connected is True while
+        # disconnected_at is still set. Auto-heal by clearing it.
+        if self.is_connected:
+            logger.warning(
+                f"Inconsistent player state: user={self.user_id}, side={self.side}: "
+                f"connected={self.connected}, _conn={'set' if self._conn else 'None'}, "
+                f"disconnected_at={self.disconnected_at}. Auto-healing by clearing disconnected_at."
+            )
+            self.disconnected_at = None
             return 0.0
         return time.time() - self.disconnected_at
 
@@ -49,7 +63,12 @@ class PlayerSession:
         return await self._conn.send(msg)
 
     def disconnect(self) -> None:
-        """Mark player as disconnected."""
+        """Mark player as disconnected.
+
+        Clears the _conn reference to avoid holding a dead WebSocket,
+        and to ensure is_connected returns False reliably.
+        """
+        self._conn = None
         self.connected = False
         self.disconnected_at = time.time()
 

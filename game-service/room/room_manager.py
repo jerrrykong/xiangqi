@@ -1221,7 +1221,8 @@ class RoomManager:
 
         for room in list(self.rooms.values()):
             # PLAYING: game clock handles timeout, skip disconnect checker
-            if room.phase == RoomPhase.PLAYING:
+            # FINISHED: RoomRunner has rematch_timeout to handle inactivity, skip here
+            if room.phase in (RoomPhase.PLAYING, RoomPhase.FINISHED):
                 continue
 
             # Rule 1 early check: no real players → delete
@@ -1232,8 +1233,19 @@ class RoomManager:
 
             # Check each disconnected real player
             for player in [room.red_player, room.black_player]:
-                if (player and not player.is_bot
-                        and not player.is_connected
+                if not player or player.is_bot:
+                    continue
+                # Defensive: if disconnected_at is stale (player is actually online),
+                # auto-heal by clearing it to prevent false-positive timeouts.
+                if player.disconnected_at is not None and player.is_connected:
+                    logger.warning(
+                        f"Disconnect checker auto-heal: user={player.user_id}, side={player.side} "
+                        f"in room={room.room_id}: disconnected_at was set but player is_connected. "
+                        f"Clearing stale disconnected_at."
+                    )
+                    player.disconnected_at = None
+                    continue
+                if (not player.is_connected
                         and player.disconnected_at is not None):
                     elapsed = now - player.disconnected_at
                     if elapsed >= timeout:
