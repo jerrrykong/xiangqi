@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from typing import Iterator, Optional, List, Tuple
 import copy
+import zlib
 
 from chess.constants import (
     Color,
@@ -16,6 +17,8 @@ from chess.constants import (
     is_red_piece, is_black_piece, is_piece,
     encode_piece, decode_piece,
 )
+
+from chess.move import Move
 
 
 @dataclass(frozen=True)
@@ -207,7 +210,7 @@ class Board:
         if self._is_valid_pos(col, row):
             self._board[row][col] = piece
 
-    def make_move(self, move: "Move") -> int:
+    def make_move(self, move: Move) -> int:
         """执行着法并返回被吃掉的棋子编码"""
         piece = self.get(move.from_col, move.from_row)
         captured = self.get(move.to_col, move.to_row)
@@ -215,7 +218,7 @@ class Board:
         self.set(move.from_col, move.from_row, PIECE_EMPTY)
         return captured
 
-    def unmake_move(self, move: "Move", captured: int) -> None:
+    def unmake_move(self, move: Move, captured: int) -> None:
         """撤销着法，恢复被吃掉的棋子"""
         piece = self.get(move.to_col, move.to_row)
         self.set(move.from_col, move.from_row, piece)
@@ -402,6 +405,22 @@ def board_to_fen(board: Board, turn: Color) -> str:
         lines.append(line)
     
     return "/".join(lines) + f" {('b' if turn == Color.BLACK else 'r')} - - 0 1"
+
+
+def compute_board_hash(fen: str) -> int:
+    """Compute CRC32 hash of a FEN string for board state verification.
+
+    Used by frontend and backend to ensure both sides agree on the current
+    board state before accepting a move. The hash is sent alongside every
+    board-state message and validated on incoming moves.
+
+    Args:
+        fen: FEN string representing the current board state.
+
+    Returns:
+        CRC32 checksum (unsigned 32-bit integer).
+    """
+    return zlib.crc32(fen.encode("utf-8"))
 
 
 def fen_to_board(fen: str) -> Board:

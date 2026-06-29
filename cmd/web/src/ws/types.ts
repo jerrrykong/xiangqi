@@ -271,6 +271,7 @@ export interface GameStartData {
 export interface MoveResultData {
   success: boolean
   fen: string
+  board_hash?: number
   move?: { from_pos: number[]; to_pos: number[] }
   message: string
   red_remaining_time?: number
@@ -281,6 +282,7 @@ export interface OpponentMoveData {
   from_pos: number[] // [row, col]
   to_pos: number[] // [row, col]
   fen: string
+  board_hash?: number
   captured?: { piece: number; pos: number[] }
   red_remaining_time?: number
   black_remaining_time?: number
@@ -290,6 +292,7 @@ export interface AIMoveData {
   from_pos: number[]
   to_pos: number[]
   fen: string
+  board_hash?: number
   captured?: { piece: number; pos: number[] }
   think_time_ms: number
   red_remaining_time?: number
@@ -304,6 +307,7 @@ export interface GameOverData {
   red_rating_change: number
   black_rating_change: number
   fen: string                                      // 最终棋盘 FEN（权威状态）
+  board_hash?: number
   last_move?: {                                     // 导致游戏结束的最后一步走棋
     from_pos: number[]
     to_pos: number[]
@@ -316,6 +320,7 @@ export interface StateSyncData {
   room_type: string
   phase: string // 'waiting' | 'ready' | 'playing' | 'finished'
   fen: string
+  board_hash?: number
   your_side: string
   red_player?: { user_id: number; username: string; nickname?: string; avatar?: string; rating: number; is_bot?: boolean; online?: boolean }
   black_player?: { user_id: number; username: string; nickname?: string; avatar?: string; rating: number; is_bot?: boolean; online?: boolean }

@@ -15,7 +15,7 @@ from chess.game import ChessGame
 from chess.move import Move
 from chess.move_validator import MoveValidator
 from chess.win_checker import WinChecker
-from chess.piece import create_initial_board, board_to_fen
+from chess.piece import create_initial_board, board_to_fen, compute_board_hash
 from ai.ai_proxy import AIProxy
 from room.room import Room, RoomPhase, RoomSource, RoomType
 from room.player_session import PlayerSession
@@ -626,6 +626,7 @@ class RoomManager:
             room.timer.switch_side()
 
         fen = board_to_fen(room.game_state.board, room.game_state.current_player)
+        board_hash = compute_board_hash(fen)
         captured_info = None
         if room.game_state.history:
             last_record = room.game_state.history[-1]
@@ -639,6 +640,7 @@ class RoomManager:
                     "from_pos": [move.from_row, move.from_col],
                     "to_pos": [move.to_row, move.to_col],
                     "fen": fen,
+                    "board_hash": board_hash,
                     "captured": captured_info,
                     "think_time_ms": think_time_ms,
                     "red_remaining_time": room.timer.red_remaining,
@@ -671,6 +673,7 @@ class RoomManager:
             room.timer.switch_side()
 
         fen = board_to_fen(room.game_state.board, room.game_state.current_player)
+        board_hash = compute_board_hash(fen)
 
         # Find who just moved (the player whose turn it was)
         current_color = room.game_state.current_player
@@ -691,6 +694,7 @@ class RoomManager:
                 "data": {
                     "success": True,
                     "fen": fen,
+                    "board_hash": board_hash,
                     "move": {
                         "from_pos": [move.from_row, move.from_col],
                         "to_pos": [move.to_row, move.to_col],
@@ -710,6 +714,7 @@ class RoomManager:
                     "from_pos": [move.from_row, move.from_col],
                     "to_pos": [move.to_row, move.to_col],
                     "fen": fen,
+                    "board_hash": board_hash,
                     "captured": captured_info,
                     "red_remaining_time": room.timer.red_remaining,
                     "black_remaining_time": room.timer.black_remaining,
@@ -756,6 +761,7 @@ class RoomManager:
 
         # Broadcast game_over with rating changes (always send, even if DB save fails)
         fen = board_to_fen(room.game_state.board, room.game_state.current_player) if room.game_state else ""
+        board_hash = compute_board_hash(fen) if fen else 0
         last_move = None
         if room.game_state and room.game_state.history:
             last_record = room.game_state.history[-1]
@@ -779,6 +785,7 @@ class RoomManager:
                 "red_rating_change": red_rating_change,
                 "black_rating_change": black_rating_change,
                 "fen": fen,
+                "board_hash": board_hash,
                 "last_move": last_move,
             },
         })

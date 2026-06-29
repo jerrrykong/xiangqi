@@ -295,8 +295,48 @@ class RoomHandler:
             })
             return
 
-        # Parse move
+        # Verify board state consistency between frontend and backend.
+        # The frontend MUST send the CRC32 hash of the FEN it believes is current.
+        # If missing or mismatched, the frontend is operating on stale state —
+        # reject the move to prevent misoperation.
         data = msg.get("data", {})
+        client_hash = data.get("board_hash")
+        from chess.piece import board_to_fen, compute_board_hash
+        server_fen = board_to_fen(room.game_state.board, room.game_state.current_player)
+        server_hash = compute_board_hash(server_fen)
+        if client_hash is None:
+            logger.warning(
+                f"Move rejected: board_hash missing, user={conn.user_id}, "
+                f"room={room.room_id}"
+            )
+            await conn.send({
+                "type": "move_result",
+                "data": {
+                    "success": False,
+                    "message": "Board hash required. Please update client.",
+                    "fen": server_fen,
+                    "board_hash": server_hash,
+                },
+            })
+            return
+        if client_hash != server_hash:
+            logger.warning(
+                f"Move rejected: board_hash mismatch, user={conn.user_id}, "
+                f"client_hash={client_hash}, server_hash={server_hash}, "
+                f"room={room.room_id}"
+            )
+            await conn.send({
+                "type": "move_result",
+                "data": {
+                    "success": False,
+                    "message": "Board state out of sync. Please refresh.",
+                    "fen": server_fen,
+                    "board_hash": server_hash,
+                },
+            })
+            return
+
+        # Parse move
         try:
             from_pos = data.get("from_pos", [])
             to_pos = data.get("to_pos", [])

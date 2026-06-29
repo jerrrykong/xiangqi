@@ -244,3 +244,83 @@ export function parseFEN(fen: string): number[][] {
   // FEN rows[0] = top of board = row 0, so the order matches
   return board
 }
+
+// ========== CRC32 & Board Hash ==========
+
+// Pre-computed CRC32 lookup table (matching Python zlib.crc32)
+const CRC_TABLE: number[] = []
+;(function initCRC32Table() {
+  for (let i = 0; i < 256; i++) {
+    let crc = i
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1)
+    }
+    CRC_TABLE[i] = crc >>> 0  // ensure unsigned
+  }
+})()
+
+/**
+ * Compute CRC32 of a UTF-8 string (matches Python zlib.crc32).
+ * Returns unsigned 32-bit integer.
+ */
+function crc32(s: string): number {
+  let crc = 0xFFFFFFFF
+  const encoder = new TextEncoder()
+  const bytes = encoder.encode(s)
+  for (let i = 0; i < bytes.length; i++) {
+    const tableIdx = (crc ^ bytes[i]) & 0xFF
+    crc = (crc >>> 8) ^ CRC_TABLE[tableIdx]
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0
+}
+
+/** FEN piece chars: uppercase=Red, lowercase=Black. Index = piece % 10. */
+const FEN_PIECE_CHARS = ['k', 'a', 'b', 'n', 'r', 'c', 'p']
+
+/**
+ * Convert board array to FEN string.
+ * Must produce the same FEN as Python board_to_fen() for hash consistency.
+ *
+ * @param board 10×9 board array (row 0 = black side top, row 9 = red side bottom)
+ * @param currentTurn 0 = Red, 1 = Black
+ */
+export function boardToFen(board: number[][], currentTurn: number): string {
+  const lines: string[] = []
+  for (let row = 0; row < 10; row++) {
+    let line = ''
+    let emptyCount = 0
+    for (let col = 0; col < 9; col++) {
+      const piece = board[row][col]
+      if (piece < 0) {
+        emptyCount++
+      } else {
+        if (emptyCount > 0) {
+          line += emptyCount.toString()
+          emptyCount = 0
+        }
+        const ptype = piece % 10           // 0=King..6=Pawn
+        const isRed = piece < 10           // Red pieces: 0-6, Black: 10-16
+        const ch = FEN_PIECE_CHARS[ptype]  // 'k'/'a'/'b'/'n'/'r'/'c'/'p'
+        line += isRed ? ch.toUpperCase() : ch
+      }
+    }
+    if (emptyCount > 0) {
+      line += emptyCount.toString()
+    }
+    lines.push(line)
+  }
+  const turnChar = currentTurn === 0 ? 'r' : 'b'
+  return lines.join('/') + ` ${turnChar} - - 0 1`
+}
+
+/**
+ * Compute CRC32 hash of the current board state (via FEN).
+ * Must match Python compute_board_hash() for server-side verification.
+ *
+ * @param board 10×9 board array
+ * @param currentTurn 0 = Red, 1 = Black
+ */
+export function computeBoardHash(board: number[][], currentTurn: number): number {
+  const fen = boardToFen(board, currentTurn)
+  return crc32(fen)
+}

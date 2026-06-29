@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Position, Move } from '@/types/chess'
-import { getInitialBoard, Color, Piece, PieceChars, getPieceColor, BoardConfig, PieceConfig, parseFEN } from '@/types/chess'
+import { getInitialBoard, Color, Piece, PieceChars, getPieceColor, BoardConfig, PieceConfig, parseFEN, computeBoardHash } from '@/types/chess'
 import { moveToPos, posToMove } from '@/types/chess'
 import { getSoundManager, type SoundKey } from '@/utils/sound'
 import type {
@@ -52,6 +52,16 @@ export interface MoveRecord {
 export const useGameStore = defineStore('game', () => {
   // 棋盘状态
   const board = ref<number[][]>(getInitialBoard())
+
+  // CRC32 hash of the current board state (computed locally via boardToFen + crc32).
+  // Sent with every move for server-side board-state consistency verification.
+  // Updated after every board change (move_result, opponent_move, ai_move, state_sync).
+  const currentBoardHash = ref<number>(0)
+
+  /** Recompute the board hash from current local board state and turn. */
+  function updateBoardHash() {
+    currentBoardHash.value = computeBoardHash(board.value, currentTurn.value)
+  }
 
   // 游戏状态
   const currentTurn = ref<0 | 1>(0) // 0=红, 1=黑
@@ -452,9 +462,13 @@ export const useGameStore = defineStore('game', () => {
   // 发送走棋（仅发请求，棋盘在 handleMoveResult 中更新）
   function sendMove(move: Move) {
     const { from_pos, to_pos } = moveToPos(move)
-    console.log('[Game] Send move:', from_pos, '->', to_pos)
+    console.log('[Game] Send move:', from_pos, '->', to_pos, 'hash=', currentBoardHash.value)
     pendingMove = move
-    wsClient.send({ type: WSMsgType.GAME_MOVE, seq: 0, data: { from_pos, to_pos } })
+    wsClient.send({
+      type: WSMsgType.GAME_MOVE,
+      seq: 0,
+      data: { from_pos, to_pos, board_hash: currentBoardHash.value },
+    })
 
     selectedPosition.value = null
     validMoves.value = []
@@ -653,6 +667,7 @@ export const useGameStore = defineStore('game', () => {
       redTime.value = data.initial_time
       blackTime.value = data.initial_time
       currentTurn.value = 0
+      updateBoardHash()  // initial board hash
       isGameStarted.value = true
       isGameOver.value = false
       isAIThinking.value = false
@@ -726,6 +741,7 @@ export const useGameStore = defineStore('game', () => {
       currentTurn.value = currentTurn.value === 0 ? 1 : 0
       addMoveRecord(move, piece, captured)
       updateCheckState()
+      updateBoardHash()  // recompute hash after board + turn change
 
       // 走棋语音（按优先级规则播放）
       if (isInCheck.value) {
@@ -890,6 +906,26 @@ export const useGameStore = defineStore('game', () => {
       }
     } else {
       pendingMove = null
+      // Board hash mismatch: server includes the correct FEN/hash for self-healing
+      if (data.fen && data.board_hash) {
+        console.warn(
+          '[Game] Board out of sync! Restoring from server FEN.',
+          'Local hash:', currentBoardHash.value,
+          'Server hash:', data.board_hash,
+        )
+        const parsed = parseFEN(data.fen)
+        if (parsed.length === 10 && parsed.every(r => r.length === 9)) {
+          board.value = parsed
+          updateBoardHash()
+          // Verify our computed hash matches the server's
+          if (currentBoardHash.value !== data.board_hash) {
+            console.error(
+              '[Game] Self-heal failed: local hash', currentBoardHash.value,
+              'still != server hash', data.board_hash,
+            )
+          }
+        }
+      }
       showMoveError(data.message || '走棋无效')
     }
   }
@@ -1227,6 +1263,15 @@ export const useGameStore = defineStore('game', () => {
       startTimer()
     } else {
       board.value = getInitialBoard()
+    }
+    // Sync board hash after restoring state (server's board_hash is authoritative;
+    // but we also compute locally to verify round-trip consistency)
+    updateBoardHash()
+    if (data.board_hash != null && currentBoardHash.value !== data.board_hash) {
+      console.warn(
+        '[Game] state_sync hash mismatch! Server:', data.board_hash,
+        'Local (from FEN):', currentBoardHash.value,
+      )
     }
 
     // 恢复着法历史 (从 moves 列表重建)

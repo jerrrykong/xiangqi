@@ -11,7 +11,7 @@ from typing import Optional
 
 from chess.constants import Color, Difficulty
 from chess.move import Move
-from chess.piece import Board
+from chess.piece import Board, board_to_fen
 from ai.engine import ChessAI
 from ai.difficulty import get_difficulty_config, get_search_depth, get_max_time_ms
 
@@ -53,7 +53,7 @@ class AIProxy:
         start_time = time.time()
         logger.info(
             f"AI thinking: difficulty={difficulty}, depth={depth}, "
-            f"time_limit={time_limit}ms, turn={current_turn}"
+            f"time_limit={time_limit}ms, fen={board_to_fen(board, current_turn)}"
         )
 
         try:

@@ -77,3 +77,11 @@ class PlayerSession:
         self._conn = conn
         self.connected = True
         self.disconnected_at = None
+
+    def has_connection(self, conn: "ClientConnection") -> bool:
+        """Check if the given connection is the player's current active connection.
+
+        Used by disconnect handler to avoid overwriting a reconnected player's
+        state when a stale (kicked) connection finally closes.
+        """
+        return self._conn is not None and self._conn is conn

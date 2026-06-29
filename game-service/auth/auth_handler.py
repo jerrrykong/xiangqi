@@ -341,7 +341,7 @@ class AuthHandler:
         """Restore player's room state after reconnection."""
         # Import here to avoid circular imports
         from room.room import RoomPhase
-        from chess.piece import board_to_fen
+        from chess.piece import board_to_fen, compute_board_hash
 
         room = self.connection_manager._room_manager_ref.get_user_room(conn.user_id) if hasattr(self.connection_manager, '_room_manager_ref') and self.connection_manager._room_manager_ref else None
 
@@ -374,6 +374,7 @@ class AuthHandler:
 
         # Build state_sync data
         fen = board_to_fen(room.game_state.board, room.game_state.current_player) if room.game_state else ""
+        board_hash = compute_board_hash(fen) if fen else 0
         current_side = "red" if room.game_state and room.game_state.current_player == 0 else "black" if room.game_state else "red"
 
         state_data = {
@@ -381,6 +382,7 @@ class AuthHandler:
             "room_type": "pvp" if room.room_type == 1 else "pve",
             "phase": room.phase.name.lower(),
             "fen": fen,
+            "board_hash": board_hash,
             "your_side": side,
             "current_side": current_side,
             "red_player": self._player_info_from_room(room.red_player),

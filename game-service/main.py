@@ -406,7 +406,14 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 async def handle_disconnect(conn: ClientConnection) -> None:
-    """Handle a player disconnection."""
+    """Handle a player disconnection.
+
+    IMPORTANT: When a player reconnects, the old connection is kicked via
+    bind_user(), but the disconnect handler for the old connection may fire
+    AFTER the new connection has already been established. We must verify
+    that the disconnecting connection is still the player's current/active
+    connection before marking the player as disconnected.
+    """
     if not conn.user_id:
         return
 
@@ -416,6 +423,17 @@ async def handle_disconnect(conn: ClientConnection) -> None:
 
     player = room.get_player(room.get_player_side(conn.user_id) or "")
     if player:
+        # Skip if player has already reconnected via a different connection.
+        # player.has_connection(conn) returns True only when conn is the
+        # player's current active connection. If False, a newer connection
+        # has taken over and this is a stale disconnect.
+        if not player.has_connection(conn):
+            logger.info(
+                f"Ignoring stale disconnect: user={conn.user_id}, "
+                f"old_conn={conn.conn_id}, player already reconnected"
+            )
+            return
+
         player.disconnect()
         logger.info(f"Player {conn.user_id} disconnected from room {room.room_id} (phase={room.phase.name})")
 
